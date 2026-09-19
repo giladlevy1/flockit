@@ -15,11 +15,12 @@ export function LogoMark({ size = 28 }: { size?: number }) {
   );
 }
 
-export function Logo() {
+/** `compact` hides the wordmark on narrow screens, where the nav bar needs the room. */
+export function Logo({ compact = false }: { compact?: boolean }) {
   return (
     <span className="inline-flex items-center gap-2">
       <LogoMark />
-      <span className="text-[17px] font-semibold tracking-tight text-ink">Flockit</span>
+      <span className={(compact ? "hidden sm:inline " : "") + "text-[17px] font-semibold tracking-tight text-ink"}>Flockit</span>
     </span>
   );
 }

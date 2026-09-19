@@ -70,7 +70,7 @@ export function SessionsPage({ me }: { me: Me }) {
           {summary.data ? (
             <Kpis
               summary={summary.data}
-              rangeLabel={`in the last ${rangeLabel.toLowerCase()}`.replace("last all time", "all time")}
+              rangeLabel={state.range === "all" ? "all time" : `in the last ${rangeLabel.toLowerCase()}`}
               onLive={() => filters.setList("status", ["live"])}
               onAbandoned={() => filters.setList("outcome", ["abandoned"])}
             />
@@ -168,10 +168,11 @@ function FirstRun({ me }: { me: Me }) {
             Install the collector on a machine that runs Claude Code. Its next session shows up here within seconds,
             with the person, agent, model, repo, branch and ticket.
           </p>
-          <Link to="/connect">
-            <Button variant="primary" className="mt-6">
-              Connect Claude Code <ArrowRight className="size-4" />
-            </Button>
+          <Link
+            to="/connect"
+            className="mt-6 inline-flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-sm font-medium text-white shadow-sm hover:brightness-105"
+          >
+            Connect Claude Code <ArrowRight className="size-4" />
           </Link>
           {me.user.role === "admin" && (
             <p className="mt-4 text-sm text-muted">

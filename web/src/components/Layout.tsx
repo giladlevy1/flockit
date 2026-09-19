@@ -21,9 +21,9 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-20 border-b border-line bg-bg/85 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-[1440px] items-center gap-6 px-4 sm:px-6">
+        <div className="mx-auto flex h-14 max-w-[1440px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
           <NavLink to="/" aria-label="Flockit home">
-            <Logo />
+            <Logo compact />
           </NavLink>
           <nav className="flex items-center gap-1">
             {NAV.map((item) => (

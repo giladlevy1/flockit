@@ -65,6 +65,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     sub.add_parser("migrate", help="apply database migrations")
 
+    p = sub.add_parser("revision", help="autogenerate a migration from model changes (development)")
+    p.add_argument("-m", "--message", required=True)
+
     p = sub.add_parser("create-admin", help="create an admin, or reset an existing user to admin")
     p.add_argument("--email", required=True)
     p.add_argument("--name", default="Admin")
@@ -93,6 +96,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command == "migrate":
         migrate()
         print("Database is up to date.")
+        return 0
+    if args.command == "revision":
+        command.revision(alembic_config(), message=args.message, autogenerate=True)
         return 0
     if args.command == "create-admin":
         password = args.password or getpass.getpass("Password for %s: " % args.email)

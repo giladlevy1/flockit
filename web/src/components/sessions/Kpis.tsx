@@ -45,7 +45,7 @@ function DailyBars({ daily }: { daily: Summary["daily"] }) {
   const max = Math.max(...daily.map((d) => d.sessions), 1);
   const recent = daily.slice(-30);
   return (
-    <div className="absolute right-4 bottom-4 flex h-9 items-end gap-[2px]" aria-hidden>
+    <div className="absolute right-4 bottom-4 hidden h-9 items-end gap-[2px] sm:flex" aria-hidden>
       {recent.map((d) => (
         <div
           key={d.day}

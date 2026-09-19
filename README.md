@@ -45,9 +45,10 @@ vendor-neutral (`agent_vendor` is a free field), so Codex, Cursor and Gemini CLI
 Context serving (M2) will speak MCP, which all of them support.
 
 **5. How long does it take to deploy?**
-One compose file. On a laptop with the base images cached, clone to first captured session took
-**under 3 minutes** in our test. The collector installs from your Flockit server in about **4 seconds**, with
-one command and no internet access.
+One compose file. In our timed test, `git clone` to the first captured Claude Code session took
+**35 seconds** (image built from source with no layer cache; base images already pulled, which adds a
+download of roughly 750 MB on a fresh machine). The collector installs from your Flockit server in about
+**4 seconds**, with one command and no internet access.
 
 ## Quickstart
 
@@ -73,6 +74,12 @@ Start `claude` in any repo. The session appears in the R&D view within seconds.
 Set `FLOCKIT_PUBLIC_URL` in `.env` to the address developers' machines use to reach the server (see
 [.env.example](.env.example)). Put it behind your usual HTTPS reverse proxy and set
 `FLOCKIT_SECURE_COOKIES=true`.
+
+| Session detail | People and teams | Connect a machine |
+|---|---|---|
+| ![Session detail drawer](docs/images/session-drawer.png) | ![People and teams](docs/images/people.png) | ![One-command collector install](docs/images/connect.png) |
+
+Dark mode follows your system: [screenshot](docs/images/rnd-view-dark.png).
 
 ## How it works
 
