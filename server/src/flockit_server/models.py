@@ -102,6 +102,9 @@ class Organization(Base):
 
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(200))
+    # The address developers' machines use to reach Flockit. Recorded from the admin's
+    # browser at setup (a trusted request) so later requests' Host headers are never trusted.
+    public_url: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = _created()
 
 

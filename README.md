@@ -71,9 +71,9 @@ Start `claude` in any repo. The session appears in the R&D view within seconds.
 > deployment: `docker compose run --rm flockit flockit-server seed-demo`, then sign in as `maya@acme.dev`
 > (admin), `daniel@acme.dev` (lead) or `noa@acme.dev` (developer). Password: `flockit-demo`.
 
-Set `FLOCKIT_PUBLIC_URL` in `.env` to the address developers' machines use to reach the server (see
-[.env.example](.env.example)). Put it behind your usual HTTPS reverse proxy and set
-`FLOCKIT_SECURE_COOKIES=true`.
+For a team deployment, set `FLOCKIT_PUBLIC_URL` in `.env` to the address developers' machines use to reach
+the server (see [.env.example](.env.example)), put it behind your usual HTTPS reverse proxy and set
+`FLOCKIT_SECURE_COOKIES=true`. The [production guide](deploy/README.md) covers HTTPS, backups and upgrades.
 
 | Session detail | People and teams | Connect a machine |
 |---|---|---|
@@ -111,7 +111,7 @@ flowchart LR
 | Agent, version, model | `claude-code`, `2.1.220`, `claude-opus-5` | model read from the transcript's metadata, never its content |
 | Repo | `github.com/acme/api` | credentials stripped; a repo with no remote reports only its folder name, never the path |
 | Branch | `feature/ENG-123-login` | scrubbed for secrets |
-| Task | `ENG-123`, `#42`, or an issue URL | from `FLOCKIT_TASK_REF`, the branch name, or the first prompt that mentions one. Query strings are dropped. The prompt itself is never sent. |
+| Task | `ENG-123`, `#42`, or an issue URL | from `FLOCKIT_TASK_REF`, the branch name, or the first prompt that mentions one. URLs keep only the ticket part of the path. The prompt itself is never sent. |
 | Start source, end reason | `startup`, `prompt_input_exit` | |
 
 Everything else Claude Code passes to hooks (prompts, `last_assistant_message`, transcript paths, working

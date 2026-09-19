@@ -9,9 +9,15 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from flockit_server.db import get_db
+from flockit_server.deps import require_admin
+from flockit_server.models import Organization, User
 from flockit_server.settings import get_settings
 
 router = APIRouter(tags=["connect"])
@@ -23,17 +29,37 @@ _WHEEL = re.compile(r"^flockit-[0-9][A-Za-z0-9.+]*-py3-none-any\.whl$")
 _SAFE_URL = re.compile(r"^https?://[A-Za-z0-9.\-]{1,253}(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~\-/]{0,200})?$")
 
 
-def public_url(request: Request) -> str:
-    """The URL developers' machines use to reach this server.
+def safe_url(value: Optional[str]) -> Optional[str]:
+    """``value`` without a trailing slash if it is safe to write into a shell script, else ``None``."""
+    if not value:
+        return None
+    url = value.strip().rstrip("/")
+    return url if _SAFE_URL.match(url) else None
 
-    ``FLOCKIT_PUBLIC_URL`` wins. Without it the URL comes from the request, which
-    means from the Host header, so it is validated strictly: it ends up inside
-    ``install.sh`` and in every collector's config.
+
+async def public_url(request: Request, db: AsyncSession) -> tuple[str, str]:
+    """The URL developers' machines use to reach this server, and where it came from.
+
+    1. ``FLOCKIT_PUBLIC_URL`` (``env``)
+    2. the address the admin used during first-run setup, stored on the organisation (``setup``)
+    3. the current request (``request``), only for deployments that have neither
+
+    The Host header of an ordinary request is never trusted once (1) or (2) exists: it
+    ends up inside ``install.sh`` and in every collector's config.
     """
-    url = (get_settings().public_url or str(request.base_url)).rstrip("/")
-    if not _SAFE_URL.match(url):
+    configured = get_settings().public_url
+    if configured:
+        url = safe_url(configured)
+        if url is None:
+            raise HTTPException(500, "FLOCKIT_PUBLIC_URL is not a valid http(s) URL")
+        return url, "env"
+    stored = (await db.execute(select(Organization.public_url).limit(1))).scalar_one_or_none()
+    if stored:
+        return stored, "setup"
+    url = safe_url(str(request.base_url))
+    if url is None:
         raise HTTPException(400, "Set FLOCKIT_PUBLIC_URL to the address developers use to reach Flockit")
-    return url
+    return url, "request"
 
 
 @lru_cache(maxsize=4)
@@ -102,12 +128,13 @@ fi
 
 
 @router.get("/install.sh", response_class=PlainTextResponse)
-async def install_script(request: Request) -> PlainTextResponse:
+async def install_script(request: Request, db: AsyncSession = Depends(get_db)) -> PlainTextResponse:
     wheel = collector_wheel()
     if wheel is None:
         raise HTTPException(503, "The collector package is missing from this server build")
+    server, _ = await public_url(request, db)
     script = (
-        INSTALL_SCRIPT.replace("__SERVER__", public_url(request))
+        INSTALL_SCRIPT.replace("__SERVER__", server)
         .replace("__WHEEL__", wheel.name)
         .replace("__SHA256__", _sha256(wheel, wheel.stat().st_mtime))
     )
@@ -124,13 +151,32 @@ async def download(name: str) -> FileResponse:
 
 
 @router.get("/api/connect")
-async def connect_info(request: Request) -> dict:
-    server = public_url(request)
+async def connect_info(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
+    server, source = await public_url(request, db)
     wheel = collector_wheel()
     return {
         "server_url": server,
-        "public_url_configured": bool(get_settings().public_url),
+        "server_url_source": source,
         "collector_available": wheel is not None,
         "collector_package": wheel.name if wheel else None,
         "install_command": f"curl -fsSL {server}/install.sh | sh -s -- <token>",
     }
+
+
+class PublicUrlIn(BaseModel):
+    public_url: str = Field(min_length=1, max_length=300)
+
+
+@router.put("/api/connect/public-url")
+async def set_public_url(
+    body: PublicUrlIn, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Change the address written into install commands. Ignored while FLOCKIT_PUBLIC_URL is set."""
+    url = safe_url(body.public_url)
+    if url is None:
+        raise HTTPException(422, "Use a plain http(s) URL, for example https://flockit.internal.example.com")
+    org = await db.get(Organization, admin.org_id)
+    assert org is not None
+    org.public_url = url
+    await db.commit()
+    return {"server_url": url}

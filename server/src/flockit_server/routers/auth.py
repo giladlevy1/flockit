@@ -11,6 +11,7 @@ from flockit_server.db import get_db
 from flockit_server.deps import COOKIE_NAME, current_user
 from flockit_server.models import LoginSession, Organization, Role, User
 from flockit_server.people import user_out
+from flockit_server.routers.connect import safe_url
 from flockit_server.schemas import LoginIn, MeOut, OrgOut, PasswordChange, SetupIn
 from flockit_server.scope import SCOPE_LABELS
 from flockit_server.security import hash_password, hash_token, new_login_token, verify_password
@@ -46,13 +47,17 @@ async def setup_status(db: AsyncSession = Depends(get_db)) -> dict:
 
 
 @router.post("/setup", status_code=status.HTTP_201_CREATED)
-async def setup(body: SetupIn, response: Response, db: AsyncSession = Depends(get_db)) -> dict:
-    """First run only: create the organisation and its first admin."""
+async def setup(body: SetupIn, request: Request, response: Response, db: AsyncSession = Depends(get_db)) -> dict:
+    """First run only: create the organisation and its first admin.
+
+    The address the admin used is recorded as the organisation's public URL, so later
+    install commands never depend on an arbitrary request's Host header.
+    """
     # Serialise concurrent first-run requests.
     await db.execute(select(func.pg_advisory_xact_lock(0x464C4F434B)))
     if (await db.execute(select(func.count()).select_from(User))).scalar_one() > 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Flockit is already set up")
-    org = Organization(name=body.org_name.strip())
+    org = Organization(name=body.org_name.strip(), public_url=safe_url(str(request.base_url)))
     db.add(org)
     await db.flush()
     user = User(

@@ -116,12 +116,8 @@ export function ConnectPage({ me }: { me: Me }) {
               ) : (
                 <CodeBlock code={command} />
               )}
-              {me.user.role === "admin" && info.data && !info.data.public_url_configured && (
-                <p className="mt-3 rounded-lg bg-warn-soft px-3 py-2 text-xs leading-relaxed text-warn">
-                  Developers' machines will contact <span className="font-mono">{server}</span>, taken from the address
-                  you opened Flockit with. If they cannot reach that address, set <span className="font-mono">FLOCKIT_PUBLIC_URL</span>{" "}
-                  in <span className="font-mono">.env</span> and restart.
-                </p>
+              {me.user.role === "admin" && info.data && info.data.server_url_source !== "env" && (
+                <ServerAddress current={server} fromRequest={info.data.server_url_source === "request"} />
               )}
             </Step>
             <Step n={3} title="Start a Claude Code session" done={!!arrived}>
@@ -203,6 +199,52 @@ export function ConnectPage({ me }: { me: Me }) {
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Admins can correct the address developers' machines use. Set once; pinned against Host headers. */
+function ServerAddress({ current, fromRequest }: { current: string; fromRequest: boolean }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(current);
+  const save = useMutation({
+    mutationFn: () => api("/api/connect/public-url", { method: "PUT", json: { public_url: value } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["connect"] });
+      setEditing(false);
+    },
+  });
+  return (
+    <div className={"mt-3 rounded-lg px-3 py-2.5 text-xs leading-relaxed " + (fromRequest ? "bg-warn-soft text-warn" : "bg-surface-2 text-muted")}>
+      {!editing ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>
+            Developers' machines will contact <span className="font-mono text-ink">{current}</span>.
+            {fromRequest && " Confirm it is reachable from their network."}
+          </span>
+          <button onClick={() => setEditing(true)} className="font-medium text-accent-ink hover:underline">
+            Change
+          </button>
+        </div>
+      ) : (
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+        >
+          <Input value={value} onChange={(e) => setValue(e.target.value)} className="h-8 max-w-sm font-mono text-xs" aria-label="Server address" />
+          <Button size="sm" variant="primary" type="submit" loading={save.isPending}>
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" type="button" onClick={() => setEditing(false)}>
+            Cancel
+          </Button>
+          {save.error && <span className="w-full text-bad">{(save.error as Error).message}</span>}
+        </form>
+      )}
     </div>
   );
 }

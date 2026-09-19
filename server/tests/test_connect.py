@@ -79,3 +79,26 @@ async def test_configured_public_url_ignores_host_header(wheel_dir, app, monkeyp
         r = await c.get("/install.sh", headers={"Host": "evil.example"})
     assert 'SERVER="https://flockit.corp.internal"' in r.text
     assert "evil.example" not in r.text
+
+
+async def test_setup_pins_the_public_url_against_later_host_headers(wheel_dir, admin, app):
+    import httpx
+
+    info = (await admin.get("/api/connect")).json()
+    assert info["server_url"] == "http://flockit.test" and info["server_url_source"] == "setup"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://flockit.test") as c:
+        r = await c.get("/install.sh", headers={"Host": "evil.example"})
+    assert 'SERVER="http://flockit.test"' in r.text
+    assert "evil.example" not in r.text
+
+
+async def test_admin_can_change_the_public_url(wheel_dir, admin, make_user):
+    r = await admin.put("/api/connect/public-url", json={"public_url": "https://flockit.corp.internal/"})
+    assert r.json() == {"server_url": "https://flockit.corp.internal"}
+    script = (await admin.get("/install.sh")).text
+    assert 'SERVER="https://flockit.corp.internal"' in script
+
+    bad = await admin.put("/api/connect/public-url", json={"public_url": 'https://x"$(id)"'})
+    assert bad.status_code == 422
+    dev = await make_user("Dan Dev")
+    assert (await dev.put("/api/connect/public-url", json={"public_url": "https://evil.example"})).status_code == 403

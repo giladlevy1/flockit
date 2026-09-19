@@ -94,7 +94,7 @@ export interface Token {
 
 export interface ConnectInfo {
   server_url: string;
-  public_url_configured: boolean;
+  server_url_source: "env" | "setup" | "request";
   collector_available: boolean;
   collector_package: string | null;
   install_command: string;

@@ -13,8 +13,10 @@ FLOCKIT_PUBLIC_URL=https://flockit.internal.example.com   # what developer lapto
 FLOCKIT_SECURE_COOKIES=true                               # once it is served over HTTPS
 ```
 
-`FLOCKIT_PUBLIC_URL` matters: it is baked into the install command on the Connect page. Leave it empty
-and Flockit uses whatever address the admin's browser used, which is wrong if that was `localhost`.
+`FLOCKIT_PUBLIC_URL` matters: it is baked into the install command on the Connect page. Without it,
+Flockit records the address the admin used during first-run setup (admins can change it on the Connect
+page). That is wrong if setup happened over `localhost`, so set it explicitly in production. Ordinary
+requests' `Host` headers are never used once either value exists.
 
 ## 2. HTTPS
 
