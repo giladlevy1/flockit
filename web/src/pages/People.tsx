@@ -52,7 +52,7 @@ export function PeoplePage({ me }: { me: Me }) {
         }
       />
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Card className="overflow-hidden">
           {users.isLoading ? (
             <div className="flex h-40 items-center justify-center text-muted">
@@ -280,7 +280,7 @@ function UserDialog({ user, teams, onClose }: { user: User | null; teams: Team[]
           save.mutate();
         }}
       >
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Name">
             <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
           </Field>

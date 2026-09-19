@@ -53,7 +53,7 @@ export function App() {
     <Layout me={me.data}>
       <Routes>
         <Route path="/" element={<SessionsPage me={me.data} />} />
-        <Route path="/sessions/:id" element={<SessionPage />} />
+        <Route path="/sessions/:id" element={<SessionPage me={me.data} />} />
         <Route path="/tasks" element={<TasksPage me={me.data} />} />
         <Route path="/workflows" element={<WorkflowsPage me={me.data} />} />
         <Route path="/ai" element={<AiDevelopersPage me={me.data} />} />

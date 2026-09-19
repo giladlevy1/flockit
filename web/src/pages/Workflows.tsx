@@ -70,7 +70,7 @@ export function WorkflowsPage({ me }: { me: Me }) {
       {workflows.isLoading ? (
         <Spinner />
       ) : workflows.data?.length ? (
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {workflows.data.map((wf) => (
             <Card key={wf.id} className="flex flex-col p-5">
               <div className="flex items-start justify-between gap-3">
@@ -123,7 +123,7 @@ export function WorkflowsPage({ me }: { me: Me }) {
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3 text-sm">
                 <PersonChip person={wf.assignee} size={22} sub={<span className="font-mono">{wf.repo}</span>} />
                 <div className="text-right text-xs text-muted">
-                  <Link to={`/tasks?view=all&status=all`} className="hover:text-ink">
+                  <Link to={`/tasks?view=all&status=all&workflow=${wf.id}`} className="hover:text-ink">
                     {(wf.runs.succeeded ?? 0) + (wf.runs.failed ?? 0)} finished · {wf.runs.failed ?? 0} failed
                   </Link>
                   <div>
@@ -252,7 +252,7 @@ function WorkflowEditor({
           save.mutate();
         }}
       >
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Name">
             <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="Triage new bugs" />
           </Field>
@@ -298,7 +298,7 @@ function WorkflowEditor({
             placeholder={"A new bug was reported: {{payload.issue.title}}\n\n{{payload.issue.body}}\n\nReproduce it with a failing test, fix it, and open a PR."}
           />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Repository">
             <Input value={repo} onChange={(e) => setRepo(e.target.value)} required placeholder="github.com/acme/api" />
           </Field>
@@ -306,7 +306,7 @@ function WorkflowEditor({
             <Input value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} placeholder="main" />
           </Field>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {!isBot ? (
             <Field label="How it starts" hint={mode === "ask" ? "The assignee accepts each task." : "Starts headless if the assignee allows auto-start."} group>
               <Segmented value={mode} onChange={setMode} options={[{ value: "ask", label: "Ask" }, { value: "auto", label: "Auto-start" }]} />
@@ -340,7 +340,7 @@ function WorkflowEditor({
                   </button>
                 ))}
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Cron expression" hint="minute hour day month weekday">
                   <Input value={cron} onChange={(e) => setCron(e.target.value)} className="font-mono" />
                 </Field>

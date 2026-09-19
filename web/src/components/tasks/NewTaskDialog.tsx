@@ -31,7 +31,7 @@ export function NewTaskDialog({
   me: Me;
   open: boolean;
   onClose: () => void;
-  initial?: Partial<{ title: string; prompt: string; repo: string; task_ref: string; assignee_id: string }>;
+  initial?: Partial<{ title: string; prompt: string; repo: string; base_branch: string; task_ref: string; assignee_id: string }>;
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -40,7 +40,7 @@ export function NewTaskDialog({
   const [title, setTitle] = useState(initial?.title ?? "");
   const [prompt, setPrompt] = useState(initial?.prompt ?? "");
   const [repo, setRepo] = useState(initial?.repo ?? "");
-  const [baseBranch, setBaseBranch] = useState("");
+  const [baseBranch, setBaseBranch] = useState(initial?.base_branch ?? "");
   const [taskRef, setTaskRef] = useState(initial?.task_ref ?? "");
   const [assignee, setAssignee] = useState(initial?.assignee_id ?? me.user.id);
   const [mode, setMode] = useState<RunMode>("ask");
@@ -91,7 +91,7 @@ export function NewTaskDialog({
             placeholder={"tests/checkout.spec.ts fails about 1 in 10 runs on CI.\nFind the race, fix it, and add a regression test."}
           />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Repository" hint={isBot ? "Required for AI developers." : "Where the work happens."}>
             <Input value={repo} onChange={(e) => setRepo(e.target.value)} list="repo-options" placeholder="github.com/acme/api" required={isBot} />
             <datalist id="repo-options">
@@ -102,7 +102,7 @@ export function NewTaskDialog({
             <Input value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} placeholder="main" />
           </Field>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Assign to">
             <Select value={assignee} onChange={(e) => setAssignee(e.target.value)}>
               <optgroup label="People">

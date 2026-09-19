@@ -160,7 +160,13 @@ export function TaskDrawer({ id, me, onClose }: { id: string; me: Me; onClose: (
                   </Row>
                 )}
                 <Row label="Runs">
-                  {t.assignee?.kind === "ai" ? "In a runner sandbox" : t.interactive ? "Interactive, in a terminal" : "In the background"}
+                  {t.assignee?.kind === "ai"
+                    ? "In a runner sandbox"
+                    : t.status === "offered"
+                      ? "Your choice when you accept: a terminal, or the background"
+                      : t.interactive
+                        ? "Interactive, in a terminal"
+                        : "In the background"}
                   {t.machine && <span className="text-muted"> · on {t.machine.name}</span>}
                 </Row>
                 <Row label="Permissions">{PROFILE_TEXT[t.permission_profile].label}</Row>

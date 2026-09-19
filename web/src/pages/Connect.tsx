@@ -80,7 +80,7 @@ export function ConnectPage({ me }: { me: Me }) {
         title="Connect Claude Code"
         sub="Install the collector once per machine. Every Claude Code session on it then shows up in Flockit, owned by you."
       />
-      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Card className="p-6 sm:p-8">
           <ol>
             <Step n={1} title="Create your collector token" done={!!created}>

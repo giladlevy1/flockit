@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { Laptop, Plus, Search, Terminal, WifiOff } from "lucide-react";
+import { Laptop, Plus, Search, Terminal, WifiOff, X } from "lucide-react";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
@@ -27,6 +27,7 @@ export function TasksPage({ me }: { me: Me }) {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
   const selected = params.get("task");
+  const workflowId = params.get("workflow");
 
   const set = (key: string, value: string | null) =>
     setParams((prev) => {
@@ -37,8 +38,9 @@ export function TasksPage({ me }: { me: Me }) {
     });
 
   const tasks = useQuery({
-    queryKey: ["tasks", view, filter.key, q],
-    queryFn: () => api<TaskPage>(`/api/tasks${qs({ view, status: filter.statuses, q: q || undefined, limit: 200 })}`),
+    queryKey: ["tasks", view, filter.key, q, workflowId],
+    queryFn: () =>
+      api<TaskPage>(`/api/tasks${qs({ view, status: filter.statuses, q: q || undefined, workflow: workflowId ?? undefined, limit: 200 })}`),
     refetchInterval: 4000,
     placeholderData: keepPreviousData,
   });
@@ -99,6 +101,14 @@ export function TasksPage({ me }: { me: Me }) {
               {f.label} <span className="tabular text-muted">{countFor(f)}</span>
             </button>
           ))}
+          {workflowId && (
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-accent/40 bg-accent-soft pr-1.5 pl-2.5 text-[13px] text-accent-ink">
+              Workflow · {tasks.data?.items[0]?.workflow?.name ?? "selected"}
+              <button onClick={() => set("workflow", null)} aria-label="Show all workflows" className="rounded p-0.5 hover:bg-accent/15">
+                <X className="size-3.5" />
+              </button>
+            </span>
+          )}
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted" />
             <input

@@ -158,7 +158,7 @@ function Pager({ page, total, onPage }: { page: number; total: number; onPage: (
 function FirstRun({ me }: { me: Me }) {
   return (
     <Card className="overflow-hidden">
-      <div className="grid gap-8 p-8 md:grid-cols-[1.2fr_1fr] md:p-10">
+      <div className="grid gap-8 p-8 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:p-10">
         <div>
           <span className="inline-flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
             <Radio className="size-5" />

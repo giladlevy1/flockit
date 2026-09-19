@@ -1,18 +1,19 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowLeft, ChevronRight, FileCode2, GitBranch, ListTodo, Terminal, Wrench } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileCode2, Forward, GitBranch, ListTodo, Terminal, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
 import { Markdown } from "../components/Markdown";
 import { StatusBadge } from "../components/sessions/StatusBadge";
-import { Avatar, Card, Spinner } from "../components/ui";
+import { NewTaskDialog } from "../components/tasks/NewTaskDialog";
+import { Avatar, Button, Card, Spinner } from "../components/ui";
 import { BotAvatar, TaskStatus, tokens } from "../components/work";
 import { api } from "../lib/api";
 import { dateTime, duration, prettyModel, shortRepo, taskHref, taskLabel, vendorLabel } from "../lib/format";
-import type { Session, TranscriptMessage } from "../lib/types";
+import type { Me, Session, TranscriptMessage } from "../lib/types";
 
-export function SessionPage() {
+export function SessionPage({ me }: { me: Me }) {
   const { id } = useParams();
   const location = useLocation();
   const session = useQuery({
@@ -30,6 +31,7 @@ export function SessionPage() {
     refetchInterval: session.data?.status === "live" ? 4000 : false,
   });
   const [showTools, setShowTools] = useState(true);
+  const [handoff, setHandoff] = useState(false);
   const messages = useMemo(() => transcript.data?.pages.flatMap((p) => p.items) ?? [], [transcript.data]);
   const target = location.hash.startsWith("#m-") ? Number(location.hash.slice(3)) : null;
 
@@ -48,11 +50,11 @@ export function SessionPage() {
       <Link to="/" className="mb-4 inline-flex items-center gap-1 text-sm text-muted hover:text-ink">
         <ArrowLeft className="size-4" /> Sessions
       </Link>
-      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
-          <div className="flex items-start gap-3">
+          <div className="flex flex-wrap items-start gap-3">
             {s.actor?.kind === "ai" ? <BotAvatar id={s.actor.id} size={40} /> : <Avatar name={s.owner.name} id={s.owner.id} size={40} />}
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-60">
               <h1 className="text-xl leading-snug font-semibold tracking-tight">{s.title ?? "Untitled session"}</h1>
               <div className="mt-1 text-sm text-muted">
                 {s.actor ? (
@@ -65,7 +67,12 @@ export function SessionPage() {
                 · {vendorLabel(s.agent_vendor)} · {prettyModel(s.agent_model)} · {dateTime(s.started_at)}
               </div>
             </div>
-            <StatusBadge s={s} />
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <StatusBadge s={s} />
+              <Button size="sm" onClick={() => setHandoff(true)} title="Turn this session into a task for someone else, or for an AI developer">
+                <Forward className="size-3.5" /> Hand off
+              </Button>
+            </div>
           </div>
 
           <Card className="mt-5">
@@ -176,8 +183,39 @@ export function SessionPage() {
           </p>
         </aside>
       </div>
+      {handoff && (
+        <NewTaskDialog
+          me={me}
+          open
+          onClose={() => setHandoff(false)}
+          initial={{
+            title: s.title ? `Continue: ${s.title}`.slice(0, 280) : "Continue this work",
+            prompt: handoffPrompt(s, messages),
+            repo: s.repo ?? "",
+            base_branch: s.branch && !["main", "master"].includes(s.branch) ? s.branch : "",
+            task_ref: s.task_ref ?? "",
+          }}
+        />
+      )}
     </div>
   );
+}
+
+/** A starting prompt that carries the useful context of a session to whoever continues it. */
+function handoffPrompt(s: Session, messages: TranscriptMessage[]): string {
+  const asks = messages.filter((m) => m.kind === "text" && m.role === "user").slice(0, 3).map((m) => m.content.slice(0, 600));
+  const lastReply = [...messages].reverse().find((m) => m.kind === "text" && m.role === "assistant");
+  const files = [...new Set(messages.filter((m) => m.kind === "tool_use" && m.tool_name && ["Edit", "Write", "MultiEdit"].includes(m.tool_name)).map((m) => m.content.split("\n")[0]))].slice(0, 12);
+  return [
+    `Continue the work from an earlier session${s.branch ? ` on branch \`${s.branch}\`` : ""}.`,
+    "",
+    "What was asked:",
+    ...asks.map((a) => `- ${a.replace(/\s+/g, " ")}`),
+    ...(lastReply ? ["", "Where it ended:", lastReply.content.slice(0, 1500)] : []),
+    ...(files.length ? ["", "Files it touched:", ...files.map((f) => `- ${f}`)] : []),
+    "",
+    "Pick up from there: check what is already done, finish what is left, and verify it.",
+  ].join("\n");
 }
 
 function Message({

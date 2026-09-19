@@ -45,7 +45,7 @@ export function AiDevelopersPage({ me }: { me: Me }) {
       {devs.isLoading ? (
         <Spinner />
       ) : devs.data?.length ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {devs.data.map((d) => (
             <Card key={d.id} className={"p-5 " + (d.is_active ? "" : "opacity-60")}>
               <div className="flex items-start gap-3">
@@ -254,7 +254,7 @@ function AiDevDialog({ me, dev, onClose }: { me: Me; dev: AiDeveloper | null; on
           save.mutate();
         }}
       >
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Name">
             <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="Ada" />
           </Field>
@@ -271,7 +271,7 @@ function AiDevDialog({ me, dev, onClose }: { me: Me; dev: AiDeveloper | null; on
         <Field label="Agent" group>
           <Segmented value={vendor} onChange={setVendor} options={[{ value: "claude-code", label: "Claude Code" }, { value: "codex", label: "Codex" }]} />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Model" hint="Leave empty for the agent's default.">
             <Input value={model} onChange={(e) => setModel(e.target.value)} list="model-options" placeholder={models[0]} />
             <datalist id="model-options">
@@ -361,7 +361,7 @@ function AddRunnerDialog({ onClose }: { onClose: () => void }) {
             A runner is any machine in your network with Docker: a spare server, a VM, a CI host. Each task runs in a fresh container
             that is thrown away afterwards.
           </p>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name">
               <Input value={name} onChange={(e) => setName(e.target.value)} required />
             </Field>
