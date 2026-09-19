@@ -43,6 +43,8 @@ def _live_cutoff() -> datetime:
 
 
 _END = func.coalesce(AgentSession.ended_at, AgentSession.last_seen_at)
+# "claude-haiku-4-5-20251001" and "claude-haiku-4-5" are the same model for reporting.
+MODEL = func.regexp_replace(AgentSession.agent_model, "-[0-9]{8}$", "")
 _SECONDS = func.extract("epoch", _END - AgentSession.started_at)
 
 
@@ -57,7 +59,7 @@ def _conditions(viewer: User, f: Filters) -> list:
     if f.vendor:
         conds.append(AgentSession.agent_vendor.in_(f.vendor))
     if f.model:
-        conds.append(AgentSession.agent_model.in_(f.model))
+        conds.append(MODEL.in_(f.model))
     if f.outcome:
         conds.append(AgentSession.outcome.in_(f.outcome))
     if f.origin:
@@ -250,13 +252,13 @@ async def summary(db: AsyncSession, viewer: User, f: Filters) -> Dict[str, Any]:
             await db.execute(
                 select(
                     AgentSession.agent_vendor,
-                    AgentSession.agent_model,
+                    MODEL,
                     func.count(),
                     func.sum(_SECONDS),
                     func.count(distinct(AgentSession.human_owner_id)),
                 )
                 .where(*conds)
-                .group_by(AgentSession.agent_vendor, AgentSession.agent_model)
+                .group_by(AgentSession.agent_vendor, MODEL)
                 .order_by(func.sum(_SECONDS).desc().nulls_last())
             )
         ).all()
@@ -358,7 +360,10 @@ async def facets(db: AsyncSession, viewer: User) -> Dict[str, Any]:
         "teams": [{"id": i, "name": n} for i, n in teams],
         "repos": await distinct_values(AgentSession.repo),
         "vendors": await distinct_values(AgentSession.agent_vendor),
-        "models": await distinct_values(AgentSession.agent_model),
+        "models": [
+            r[0]
+            for r in await db.execute(select(MODEL).where(scope, AgentSession.agent_model.is_not(None)).distinct().order_by(MODEL))
+        ],
     }
 
 

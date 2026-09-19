@@ -141,6 +141,7 @@ async def _link_task(db: AsyncSession, row: AgentSession, who: Attribution, p: _
         return
     row.workflow_run_id = run.id
     row.origin = Origin.workflow
+    row.title = run.title[:300]  # the task's name says more than the long prompt it was started with
     if row.task_ref is None and run.task_ref:
         row.task_ref = run.task_ref
     if run.session_id is None or run.session_id == row.id:
@@ -186,7 +187,7 @@ def _apply(row: AgentSession, p: _Parsed) -> None:
 
 
 async def _apply_transcript(db: AsyncSession, row: AgentSession, t: TranscriptIn) -> None:
-    if t.title and not row.title:
+    if t.title and not row.title and row.workflow_run_id is None:
         row.title = t.title[:300]
     if t.messages:
         values = [

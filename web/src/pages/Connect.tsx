@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, KeyRound, ShieldCheck, Terminal, Trash2 } from "lucide-react";
+import { CheckCircle2, KeyRound, Laptop, ShieldCheck, Terminal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
 import { Button, Card, CopyButton, ErrorNote, Input, PageHeader, Spinner } from "../components/ui";
 import { api, qs } from "../lib/api";
 import { prettyModel, relativeTime, shortRepo } from "../lib/format";
-import type { ConnectInfo, Me, SessionPage, Token } from "../lib/types";
+import type { ConnectInfo, Machine, Me, SessionPage, Token } from "../lib/types";
 
 function CodeBlock({ code }: { code: string }) {
   return (
@@ -108,8 +108,9 @@ export function ConnectPage({ me }: { me: Me }) {
             </Step>
             <Step n={2} title="Run this on the machine that runs Claude Code" done={!!arrived}>
               <p className="mb-3">
-                It installs the collector from this server into <span className="font-mono text-ink">~/.flockit</span> and
-                registers it as a Claude Code hook. Needs Python 3.9+. No internet access required.
+                It installs Flockit from this server into <span className="font-mono text-ink">~/.flockit</span>, registers it as a
+                Claude Code hook, and starts a small background agent so tasks assigned to you can open here. Needs Python 3.9+.
+                No internet access required.
               </p>
               {info.data && !info.data.collector_available ? (
                 <ErrorNote error="This server build does not include the collector package. Use the Docker image, or run `make collector` before starting the server." />
@@ -148,10 +149,10 @@ export function ConnectPage({ me }: { me: Me }) {
         <div className="space-y-6">
           <Card className="p-5">
             <div className="flex items-center gap-2 font-semibold">
-              <ShieldCheck className="size-4 text-live" /> What leaves the machine
+              <ShieldCheck className="size-4 text-live" /> What is captured
             </div>
             <ul className="mt-3 space-y-1.5 text-sm text-ink-2">
-              {["Session id, start and end time", "Agent, version and model", "Repo (no credentials, no local path)", "Branch and ticket reference"].map(
+              {["Who, which agent and model, repo, branch, ticket", "The conversation: prompts, replies, tool calls", "Files edited, commands run, token usage"].map(
                 (t) => (
                   <li key={t} className="flex gap-2">
                     <span className="mt-2 size-1 shrink-0 rounded-full bg-live" />
@@ -161,10 +162,12 @@ export function ConnectPage({ me }: { me: Me }) {
               )}
             </ul>
             <p className="mt-3 text-xs leading-relaxed text-muted">
-              Never sent: prompts, responses, code, command output, file paths, environment variables. Secrets are
-              redacted on the laptop before anything is transmitted.
+              Everything is redacted on your laptop before it is sent: API keys, tokens, passwords and connection strings are
+              stripped, and paths are made relative so your username never leaves. It goes only to this server.
             </p>
           </Card>
+
+          <MyMachines />
 
           <Card className="p-5">
             <div className="flex items-center gap-2 font-semibold">
@@ -246,5 +249,41 @@ function ServerAddress({ current, fromRequest }: { current: string; fromRequest:
         </form>
       )}
     </div>
+  );
+}
+
+function MyMachines() {
+  const qc = useQueryClient();
+  const machines = useQuery({ queryKey: ["my-machines"], queryFn: () => api<Machine[]>("/api/machines/me"), refetchInterval: 10000 });
+  const remove = useMutation({
+    mutationFn: (id: string) => api(`/api/machines/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["my-machines"] }),
+  });
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-2 font-semibold">
+        <Laptop className="size-4 text-muted" /> Your machines
+      </div>
+      {machines.data?.length ? (
+        <ul className="mt-2 divide-y divide-line">
+          {machines.data.map((m) => (
+            <li key={m.id} className="flex items-center gap-2 py-2.5">
+              <span className={"size-2 shrink-0 rounded-full " + (m.online ? "bg-live" : "bg-line-strong")} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{m.name}</div>
+                <div className="truncate text-xs text-muted">
+                  {m.online ? "Agent running, ready for tasks" : m.last_seen_at ? `Offline · seen ${relativeTime(m.last_seen_at)}` : "Never connected"}
+                </div>
+              </div>
+              <Button size="sm" variant="ghost" aria-label={`Remove ${m.name}`} onClick={() => confirm(`Stop sending tasks to ${m.name}?`) && remove.mutate(m.id)}>
+                <Trash2 className="size-3.5" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-sm text-muted">No machine has connected its agent yet.</p>
+      )}
+    </Card>
   );
 }

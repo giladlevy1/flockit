@@ -4,6 +4,7 @@ import { GitBranch } from "lucide-react";
 import { duration, prettyModel, relativeTime, shortRepo, taskHref, taskLabel, vendorLabel } from "../../lib/format";
 import type { Session } from "../../lib/types";
 import { Avatar } from "../ui";
+import { BotAvatar, tokens } from "../work";
 import { OriginBadge, StatusBadge } from "./StatusBadge";
 
 export function liveDuration(s: Session, now: number): number {
@@ -34,16 +35,16 @@ export function SessionTable({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[980px] border-collapse text-sm">
+      <table className="w-full min-w-[1060px] border-collapse text-sm">
         <thead className="border-b border-line bg-surface-2/60">
           <tr>
-            {showOwner && <Th className="pl-4">Person</Th>}
-            <Th className={showOwner ? "" : "pl-4"}>Agent</Th>
-            <Th>Repo and branch</Th>
-            <Th>Task</Th>
+            {showOwner && <Th className="pl-4">Who</Th>}
+            <Th className={showOwner ? "" : "pl-4"}>Session</Th>
+            <Th>Agent</Th>
+            <Th>Ticket</Th>
             <Th>Started</Th>
             <Th className="text-right">Duration</Th>
-            <Th className="text-right">Turns</Th>
+            <Th className="text-right">Tokens</Th>
             <Th className="pr-4">How it ended</Th>
           </tr>
         </thead>
@@ -65,29 +66,37 @@ export function SessionTable({
                 {showOwner && (
                   <td className="py-2.5 pr-3 pl-4">
                     <div className="flex items-center gap-2.5">
-                      <Avatar name={s.owner.name} id={s.owner.id} />
+                      {s.actor?.kind === "ai" ? <BotAvatar id={s.actor.id} /> : <Avatar name={s.owner.name} id={s.owner.id} />}
                       <div className="min-w-0">
-                        <div className="truncate font-medium text-ink">{s.owner.name}</div>
-                        <div className="truncate text-xs text-muted">{s.owner.teams.join(", ") || "No team"}</div>
+                        <div className="flex items-center gap-1.5 truncate font-medium text-ink">
+                          {s.actor?.kind === "ai" ? s.actor.name : s.owner.name}
+                          {s.actor?.kind === "ai" && <span className="rounded bg-ink px-1 py-px text-[9.5px] font-semibold text-bg">AI</span>}
+                        </div>
+                        <div className="truncate text-xs text-muted">
+                          {s.actor?.kind === "ai" ? `for ${s.owner.name}` : s.owner.teams.join(", ") || "No team"}
+                        </div>
                       </div>
                     </div>
                   </td>
                 )}
-                <td className={clsx("px-3 py-2.5", !showOwner && "pl-4")}>
+                <td className={clsx("max-w-[340px] px-3 py-2.5", !showOwner && "pl-4")}>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-ink">{prettyModel(s.agent_model)}</span>
+                    <span className="truncate text-ink">{s.title ?? <span className="text-muted">{shortRepo(s.repo) || "Untitled"}</span>}</span>
                     <OriginBadge origin={s.origin} />
                   </div>
-                  <div className="text-xs text-muted">{vendorLabel(s.agent_vendor)}</div>
+                  <div className="flex items-center gap-1 truncate font-mono text-[11.5px] text-muted">
+                    <span className="truncate">{shortRepo(s.repo) || "no repo"}</span>
+                    {s.branch && (
+                      <>
+                        <GitBranch className="ml-1 size-3 shrink-0" />
+                        <span className="truncate">{s.branch}</span>
+                      </>
+                    )}
+                  </div>
                 </td>
-                <td className="max-w-[280px] px-3 py-2.5">
-                  <div className="truncate font-mono text-[12.5px] text-ink">{shortRepo(s.repo) || <span className="text-muted">No repo</span>}</div>
-                  {s.branch && (
-                    <div className="flex items-center gap-1 truncate font-mono text-[11.5px] text-muted">
-                      <GitBranch className="size-3 shrink-0" />
-                      <span className="truncate">{s.branch}</span>
-                    </div>
-                  )}
+                <td className="px-3 py-2.5 whitespace-nowrap">
+                  <div className="font-medium text-ink">{prettyModel(s.agent_model)}</div>
+                  <div className="text-xs text-muted">{vendorLabel(s.agent_vendor)}</div>
                 </td>
                 <td className="px-3 py-2.5">
                   {s.task_ref ? (
@@ -112,7 +121,9 @@ export function SessionTable({
                   {relativeTime(s.started_at, now)}
                 </td>
                 <td className="tabular px-3 py-2.5 text-right whitespace-nowrap text-ink">{duration(liveDuration(s, now))}</td>
-                <td className="tabular px-3 py-2.5 text-right text-ink-2">{s.turn_count}</td>
+                <td className="tabular px-3 py-2.5 text-right text-ink-2" title={`${s.tokens_output.toLocaleString()} output, ${(s.tokens_input + s.tokens_cache_read + s.tokens_cache_write).toLocaleString()} input`}>
+                  {s.tokens_output || s.tokens_input ? tokens(s.tokens_input + s.tokens_cache_read + s.tokens_cache_write + s.tokens_output) : <span className="text-muted">—</span>}
+                </td>
                 <td className="py-2.5 pr-4 pl-3">
                   <StatusBadge s={s} />
                 </td>

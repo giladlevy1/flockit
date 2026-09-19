@@ -132,6 +132,9 @@ class TestEnvVars:
             ("SENTRY_DSN=https://abc@o1.ingest.sentry.io/1", "https://abc@o1.ingest.sentry.io/1"),
             ("REDIS_CONNECTION_STRING=redis://cache", "redis://cache"),
             ("my_private_key => topsecretvalue", "topsecretvalue"),
+            ("HEROKU_API_KEY=01234567-89ab-cdef-0123-456789abcdef", "01234567-89ab-cdef-0123-456789abcdef"),
+            ("BASIC_AUTH=admin:pw123", "admin:pw123"),
+            ("authorization: tok_abcdef123456", "tok_abcdef123456"),
         ],
     )
     def test_secret_named_assignments(self, line, secret):
@@ -160,6 +163,9 @@ class TestReadableValuesSurvive:
             "dependabot/npm_and_yarn/web/vite-8.3.0",
             "users/gilad.levy/PLAT-431-flaky-e2e-on-safari-17",
             "claude-haiku-4-5-20251001",
+            "Flockit task (id 483c09d7-0bc5-4d6c-b4ac-f3e775125d4c)",
+            "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+            "author: Maya, authored_at: 2026-09-19",
         ],
     )
     def test_unchanged(self, text):

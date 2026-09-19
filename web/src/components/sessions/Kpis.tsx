@@ -2,6 +2,7 @@ import clsx from "clsx";
 import type { ReactNode } from "react";
 
 import { hours } from "../../lib/format";
+import { tokens } from "../work";
 import type { Summary } from "../../lib/types";
 import { Card } from "../ui";
 
@@ -71,7 +72,7 @@ export function Kpis({
 }) {
   const abandonedPct = summary.sessions ? Math.round((summary.outcomes.abandoned / summary.sessions) * 100) : 0;
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       <Kpi
         label={
           <>
@@ -89,6 +90,15 @@ export function Kpis({
       </Kpi>
       <Kpi label="Agent time" value={hours(summary.agent_hours)} sub={`${summary.turns.toLocaleString()} agent turns`} />
       <Kpi
+        label="Tokens"
+        value={tokens(summary.tokens_input + summary.tokens_output)}
+        sub={
+          summary.sessions
+            ? `${Math.round((summary.ai_sessions / summary.sessions) * 100)}% by AI developers`
+            : "no sessions yet"
+        }
+      />
+      <Kpi
         label="People"
         value={summary.people}
         sub={`across ${summary.repos} ${summary.repos === 1 ? "repo" : "repos"}`}
@@ -96,7 +106,7 @@ export function Kpis({
       <Kpi
         label="Abandoned"
         value={`${abandonedPct}%`}
-        sub={`${summary.outcomes.abandoned} sessions went quiet and never ended`}
+        sub={`${summary.outcomes.abandoned} went quiet, never ended`}
         tone={abandonedPct >= 20 ? "warn" : undefined}
         onClick={onAbandoned}
       />

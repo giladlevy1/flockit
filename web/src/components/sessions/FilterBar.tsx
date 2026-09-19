@@ -83,6 +83,15 @@ export function FilterBar({
         />
       )}
       <MultiSelect
+        label="Worker"
+        value={state.lists.worker}
+        onChange={(v) => setList("worker", v)}
+        options={[
+          { value: "human", label: "People", hint: "their own sessions" },
+          { value: "ai", label: "AI developers", hint: "sessions run on runners" },
+        ]}
+      />
+      <MultiSelect
         label="Repo"
         value={state.lists.repo}
         onChange={(v) => setList("repo", v)}

@@ -13,7 +13,7 @@ export const RANGES = [
 
 export type RangeValue = (typeof RANGES)[number]["value"];
 
-export const LIST_KEYS = ["owner", "team", "repo", "vendor", "model", "status", "outcome"] as const;
+export const LIST_KEYS = ["owner", "team", "repo", "vendor", "model", "status", "outcome", "worker"] as const;
 export type ListKey = (typeof LIST_KEYS)[number];
 
 export interface FilterState {
@@ -73,7 +73,9 @@ export function useFilters() {
   const apiParams = useMemo(() => {
     const hours = RANGES.find((r) => r.value === state.range)?.hours;
     const since = hours ? new Date(Math.floor((Date.now() - hours * 3600_000) / 60_000) * 60_000).toISOString() : undefined;
-    return { ...state.lists, q: state.q || undefined, task_ref: state.task_ref || undefined, since };
+    const { worker, ...lists } = state.lists;
+    const actor_kind = worker.length === 1 ? worker[0] : undefined;
+    return { ...lists, actor_kind, q: state.q || undefined, task_ref: state.task_ref || undefined, since };
   }, [state, Math.floor(Date.now() / 60_000)]);
 
   const page = Math.max(0, Number(params.get("page") ?? 0) || 0);

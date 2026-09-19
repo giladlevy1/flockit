@@ -259,6 +259,13 @@ class TaskRun:
             env = self._prepare(workdir)
             cmd, proc_env = self._command(workdir, env)
             self.runner.report(self.id, "running")
+            # Headless agents do not echo their prompt, so record it as the first message.
+            from flockit.conversation import PathRewriter, redact_text
+
+            self.batch.title = self.task["title"][:200]
+            self.batch.messages.append({"id": f"{self.id}:prompt", "seq": 0, "role": "user", "kind": "text",
+                                        "content": redact_text(self.task["prompt"], PathRewriter(None), 20000), "at": _now()})
+            self.converter.seq = 1
             self.send([self._event("session.start", start_source="startup")])
             self.proc = subprocess.Popen(cmd, env=proc_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
             stderr_tail: List[str] = []
@@ -322,6 +329,11 @@ class TaskRun:
                     result += "\n\nNo code changes."
             else:
                 error = error or summary or "".join(stderr_tail)[-3000:] or f"The agent exited with code {code}"
+                if any(s in error for s in ("Not logged in", "Invalid API key", "OPENAI_API_KEY", "authentication")):
+                    error += (
+                        "\n\nThe runner has no model credentials. Set ANTHROPIC_API_KEY, or CLAUDE_CODE_OAUTH_TOKEN "
+                        "(from `claude setup-token`), for Claude Code; OPENAI_API_KEY for Codex. Then restart the runner."
+                    )
             self.send([self._event("session.end", end_reason="completed" if status == "succeeded" else "error")])
         except Exception as exc:  # noqa: BLE001
             error = f"The runner failed to run this task: {type(exc).__name__}: {exc}"

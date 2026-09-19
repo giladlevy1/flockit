@@ -84,8 +84,10 @@ SERVER="__SERVER__"
 WHEEL="__WHEEL__"
 WHEEL_SHA256="__SHA256__"
 TOKEN="${1:-${FLOCKIT_TOKEN:-}}"
+RUNNER_ONLY=""
+if [ "$TOKEN" = "--runner-only" ]; then RUNNER_ONLY=1; TOKEN=""; fi
 
-if [ -z "$TOKEN" ]; then
+if [ -z "$TOKEN" ] && [ -z "$RUNNER_ONLY" ]; then
   echo "usage: curl -fsSL $SERVER/install.sh | sh -s -- <collector-token>" >&2
   echo "Create a token on the Connect page: $SERVER/connect" >&2
   exit 2
@@ -116,6 +118,10 @@ curl -fsSL "$SERVER/downloads/$WHEEL" -o "$TMP/$WHEEL"
 "$PY" -m venv --clear "$VENV"
 "$VENV/bin/python" -m pip install --quiet --disable-pip-version-check --no-index "$TMP/$WHEEL"
 
+if [ -n "$RUNNER_ONLY" ]; then
+  echo "Installed. Build the sandbox image with: $VENV/bin/flockit runner build-image"
+  exit 0
+fi
 "$VENV/bin/flockit" install --server "$SERVER" --token "$TOKEN"
 
 if [ -d "$HOME/.local/bin" ] && [ -w "$HOME/.local/bin" ]; then

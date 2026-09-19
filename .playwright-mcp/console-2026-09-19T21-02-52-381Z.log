@@ -1,0 +1,1 @@
+[     191ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8777/api/auth/me:0

@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, X } from "lucide-react";
+import { ArrowUpRight, ExternalLink, X } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
+import { Link } from "react-router";
 
 import { api } from "../../lib/api";
 import { dateTime, duration, prettyModel, taskHref, vendorLabel } from "../../lib/format";
 import type { Session } from "../../lib/types";
 import { Avatar, Badge, Spinner } from "../ui";
+import { BotAvatar, tokens } from "../work";
 import { liveDuration } from "./SessionTable";
 import { StatusBadge } from "./StatusBadge";
 
@@ -68,24 +70,36 @@ export function SessionDrawer({
           {s && (
             <>
               <div className="mb-5 flex items-center gap-3">
-                <Avatar name={s.owner.name} id={s.owner.id} size={40} />
+                {s.actor?.kind === "ai" ? <BotAvatar id={s.actor.id} size={40} /> : <Avatar name={s.owner.name} id={s.owner.id} size={40} />}
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold">{s.owner.name}</div>
-                  <div className="truncate text-sm text-muted">{s.owner.email}</div>
+                  <div className="truncate font-semibold">{s.actor?.kind === "ai" ? `${s.actor.name} (AI developer)` : s.owner.name}</div>
+                  <div className="truncate text-sm text-muted">{s.actor?.kind === "ai" ? `for ${s.owner.name}` : s.owner.email}</div>
                 </div>
                 <StatusBadge s={s} />
               </div>
 
-              <div className="mb-5 grid grid-cols-3 gap-2">
+              {s.title && <p className="-mt-2 mb-4 text-sm text-ink-2">{s.title}</p>}
+              <div className="mb-4 grid grid-cols-3 gap-2">
                 <Stat label="Duration" value={duration(liveDuration(s, now))} />
-                <Stat label="Turns" value={String(s.turn_count)} />
-                <Stat label="Models" value={String(Math.max(1, s.models_used.length))} />
+                <Stat label="Tool calls" value={String(s.tool_calls)} />
+                <Stat label="Tokens" value={tokens(s.tokens_input + s.tokens_cache_read + s.tokens_cache_write + s.tokens_output)} />
               </div>
+              <Link
+                to={`/sessions/${s.id}`}
+                className="mb-5 flex items-center justify-between rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-bg hover:opacity-90"
+              >
+                Open the full conversation
+                <ArrowUpRight className="size-4" />
+              </Link>
+              {s.task && (
+                <Link to={`/tasks?view=all&task=${s.task.id}`} className="mb-5 block rounded-lg border border-line px-4 py-2.5 text-sm hover:bg-surface-2">
+                  <span className="text-muted">Task · </span>
+                  <span className="font-medium">{s.task.title}</span>
+                </Link>
+              )}
 
               <dl>
-                <Row label="Origin">
-                  {s.origin === "workflow" ? <Badge tone="accent">Workflow</Badge> : "Started by a person"}
-                </Row>
+                <Row label="Origin">{s.origin === "workflow" ? "Started for a Flockit task" : "Started by a person"}</Row>
                 <Row label="Agent">
                   {vendorLabel(s.agent_vendor)}
                   {s.agent_version && <span className="text-muted"> {s.agent_version}</span>}
@@ -150,8 +164,8 @@ export function SessionDrawer({
               </div>
 
               <p className="mt-8 rounded-lg bg-surface-2 px-3 py-2.5 text-xs leading-relaxed text-muted">
-                Flockit records session metadata only. Prompts, responses, code and command output never leave the
-                developer's machine.
+                The conversation is captured on the developer's machine and redacted there: credentials are stripped and
+                paths made relative before anything is sent to this server.
               </p>
             </>
           )}

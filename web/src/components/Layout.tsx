@@ -1,23 +1,28 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { KeyRound, LogOut, Monitor, Moon, Sun } from "lucide-react";
+import { KeyRound, LogOut, Monitor, Moon, ScrollText, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { NavLink } from "react-router";
+import { Link, NavLink } from "react-router";
 
 import { api } from "../lib/api";
 import { useTheme, type ThemeChoice } from "../lib/theme";
-import type { Me } from "../lib/types";
+import type { Inbox, Me } from "../lib/types";
 import { Dialog } from "./Dialog";
 import { Logo } from "./Logo";
 import { Avatar, Button, ErrorNote, Field, Input } from "./ui";
 
 const NAV = [
   { to: "/", label: "Sessions", end: true },
+  { to: "/tasks", label: "Tasks" },
+  { to: "/workflows", label: "Workflows" },
+  { to: "/ai", label: "AI developers" },
+  { to: "/search", label: "Search" },
   { to: "/people", label: "People" },
   { to: "/connect", label: "Connect" },
 ];
 
 export function Layout({ me, children }: { me: Me; children: ReactNode }) {
+  const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api<Inbox>("/api/tasks/inbox"), refetchInterval: 10000 });
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-20 border-b border-line bg-bg/85 backdrop-blur-md">
@@ -25,7 +30,7 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
           <NavLink to="/" aria-label="Flockit home">
             <Logo compact />
           </NavLink>
-          <nav className="flex items-center gap-1">
+          <nav className="-mx-1 flex min-w-0 items-center gap-0.5 overflow-x-auto px-1 [scrollbar-width:none]">
             {NAV.map((item) => (
               <NavLink
                 key={item.to}
@@ -33,17 +38,20 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
                 end={item.end}
                 className={({ isActive }) =>
                   clsx(
-                    "rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
+                    "relative shrink-0 rounded-lg px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
                     isActive ? "bg-surface-2 text-ink" : "text-muted hover:text-ink",
                   )
                 }
               >
                 {item.label}
+                {item.to === "/tasks" && inbox.data && inbox.data.offered > 0 && (
+                  <span className="ml-1.5 rounded-full bg-accent px-1.5 py-px text-[10.5px] font-semibold text-white">{inbox.data.offered}</span>
+                )}
               </NavLink>
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-3">
-            <span className="hidden text-sm text-muted md:inline">{me.org.name}</span>
+            <span className="hidden text-sm text-muted xl:inline">{me.org.name}</span>
             <UserMenu me={me} />
           </div>
         </div>
@@ -126,6 +134,11 @@ function UserMenu({ me }: { me: Me }) {
           >
             <KeyRound className="size-4 text-muted" /> Change password
           </button>
+          {me.user.role === "admin" && (
+            <Link to="/audit" onClick={() => setOpen(false)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2">
+              <ScrollText className="size-4 text-muted" /> Audit log
+            </Link>
+          )}
           <button onClick={logout} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2">
             <LogOut className="size-4 text-muted" /> Sign out
           </button>

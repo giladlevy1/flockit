@@ -3,11 +3,17 @@ import { Navigate, Route, Routes, useLocation } from "react-router";
 import { Layout } from "./components/Layout";
 import { Spinner } from "./components/ui";
 import { useMe, useSetupStatus } from "./lib/auth";
+import { AiDevelopersPage } from "./pages/AiDevelopers";
+import { AuditPage } from "./pages/Audit";
 import { ConnectPage } from "./pages/Connect";
 import { LoginPage } from "./pages/Login";
 import { PeoplePage } from "./pages/People";
+import { SearchPage } from "./pages/Search";
+import { SessionPage } from "./pages/SessionPage";
 import { SessionsPage } from "./pages/Sessions";
 import { SetupPage } from "./pages/Setup";
+import { TasksPage } from "./pages/Tasks";
+import { WorkflowsPage } from "./pages/Workflows";
 
 function FullPageSpinner() {
   return (
@@ -47,6 +53,12 @@ export function App() {
     <Layout me={me.data}>
       <Routes>
         <Route path="/" element={<SessionsPage me={me.data} />} />
+        <Route path="/sessions/:id" element={<SessionPage />} />
+        <Route path="/tasks" element={<TasksPage me={me.data} />} />
+        <Route path="/workflows" element={<WorkflowsPage me={me.data} />} />
+        <Route path="/ai" element={<AiDevelopersPage me={me.data} />} />
+        <Route path="/search" element={<SearchPage me={me.data} />} />
+        {me.data.user.role === "admin" && <Route path="/audit" element={<AuditPage />} />}
         <Route path="/people" element={<PeoplePage me={me.data} />} />
         <Route path="/connect" element={<ConnectPage me={me.data} />} />
         <Route path="/login" element={<Navigate to="/" replace />} />

@@ -93,7 +93,7 @@ _QUERY_SECRET = re.compile(
 # KEY=value / KEY: value where the key name says it is secret
 _SECRET_NAME = (
     r"[A-Za-z0-9_\-]{0,64}(?:SECRET|PASSWORD|PASSWD|PWD|TOKEN|API[_\-]?KEY|APIKEY|ACCESS[_\-]?KEY|"
-    r"PRIVATE[_\-]?KEY|CREDENTIAL|AUTH|SESSION[_\-]?KEY|DSN|CONN(?:ECTION)?[_\-]?STR(?:ING)?|"
+    r"PRIVATE[_\-]?KEY|CREDENTIAL|AUTHORIZATION|AUTH(?![A-Za-z])|SESSION[_\-]?KEY|DSN|CONN(?:ECTION)?[_\-]?STR(?:ING)?|"
     r"DATABASE[_\-]?URL)[A-Za-z0-9_\-]{0,64}"
 )
 _ASSIGNMENT = re.compile(
@@ -129,9 +129,16 @@ def _hex(match: "re.Match[str]") -> str:
     return REDACTED if has_digit and has_letter else run
 
 
+_UUID_RUN = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
 def _looks_random(run: str) -> bool:
-    """True for a blob of random characters, false for words joined by separators."""
+    """True for a blob of random characters, false for words joined by separators.
+    Canonical UUIDs are identifiers (task, request, session ids), not secrets; a UUID
+    assigned to a secret-named key is still caught by the assignment rule."""
     core = run.rstrip("=")
+    if _UUID_RUN.match(core):
+        return False
     segments = [seg for seg in re.split(r"[/_\-+]", core) if seg]
     letters = sum(len(seg) for seg in segments)
     if letters < 24:

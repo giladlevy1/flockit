@@ -96,7 +96,8 @@ def prepare(repo: Optional[str], base_branch: Optional[str], branch: str, task_i
     if not repo:
         raise WorkspaceError("The task has no repository")
     root = find_or_clone(repo)
-    path = worktrees_dir() / f"{task_id[:8]}-{re.sub(r'[^A-Za-z0-9._-]+', '-', branch.split('/')[-1])[:40]}"
+    leaf = re.sub(r"[^A-Za-z0-9._-]+", "-", branch.split("/")[-1])[:48]
+    path = worktrees_dir() / (leaf if leaf.startswith(task_id[:8]) else f"{task_id[:8]}-{leaf}")
     if (path / ".git").exists():
         return str(path)
     path.parent.mkdir(parents=True, exist_ok=True)

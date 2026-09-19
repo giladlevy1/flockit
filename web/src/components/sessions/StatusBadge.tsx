@@ -22,7 +22,7 @@ export function StatusBadge({ s }: { s: Pick<Session, "status" | "outcome"> }) {
 }
 
 export function OriginBadge({ origin }: { origin: Session["origin"] }) {
-  return origin === "workflow" ? <Badge tone="accent">Workflow</Badge> : null;
+  return origin === "workflow" ? <Badge tone="accent">Task</Badge> : null;
 }
 
 export const MODEL_COLORS = ["#e8622c", "#1f8a70", "#5b6ee1", "#c79a3c", "#8a94a6", "#b04fa0", "#2f9bd1"];
