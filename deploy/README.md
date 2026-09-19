@@ -72,7 +72,28 @@ Locked out? Create or reset an admin from the host:
 docker compose exec flockit flockit-server create-admin --email you@example.com
 ```
 
-## 6. Verifying zero egress
+## 6. Runners for AI developers
+
+A runner is any machine in your network with Docker. It needs outbound access to your model provider and git host; the
+Flockit server still does not.
+
+```bash
+curl -fsSL https://flockit.internal.example.com/install.sh | sh -s -- --runner-only
+~/.flockit/venv/bin/flockit runner build-image          # Claude Code + Codex inside a node:22 image
+
+export ANTHROPIC_API_KEY=...        # or CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) for Claude Code
+export OPENAI_API_KEY=...           # for Codex AI developers
+export GH_TOKEN=...                 # clone private repos, push branches, open pull requests
+~/.flockit/venv/bin/flockit runner --server https://flockit.internal.example.com --token frn_... --capacity 2
+```
+
+- Each task runs in a new container (`--memory 4g --cpus 2 --pids-limit 512`), removed afterwards. Credentials are passed by
+  name from the runner's environment, never on the command line.
+- Pools: give a runner `--pool` (set when you create it in the UI) and an AI developer the same pool to pin its work there.
+- Git hosts reached over SSH: `--clone-url 'git@{host}:{path}.git'`.
+- Keep it running with systemd, a container, or your process manager of choice.
+
+## 7. Verifying zero egress
 
 `./deploy/network-trace.sh 300` captures every packet the deployment sends for five minutes and reports
 anything that leaves the compose network. See [docs/network-trace.md](../docs/network-trace.md) for our

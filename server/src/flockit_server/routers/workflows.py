@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flockit_server import runs
 from flockit_server.db import get_db, sessionmaker
 from flockit_server.deps import current_user
-from flockit_server.models import PermissionProfile, Role, RunMode, User, Workflow, WorkflowRun
+from flockit_server.models import PermissionProfile, Role, RunMode, User, UserKind, Workflow, WorkflowRun
 from flockit_server.routers.connect import public_url
 from flockit_server.routers.tasks import TaskOut, task_out
 from flockit_server.security import hash_token
@@ -280,6 +280,10 @@ async def start_workflow(
             if isinstance(value, str) and value:
                 ref = value[:300]
                 break
+    # A webhook body is written by whoever can file a ticket. It must never start an agent
+    # on a person's machine unattended: webhook work for people always waits for them to accept.
+    # (AI developers run in disposable sandboxes on runners, so they still start on their own.)
+    mode = RunMode.ask if trigger == "webhook" and assignee.kind == UserKind.human else wf.mode
     run = await runs.create_run(
         db,
         org_id=wf.org_id,
@@ -289,7 +293,7 @@ async def start_workflow(
         repo=wf.repo,
         base_branch=wf.base_branch,
         task_ref=ref,
-        mode=wf.mode,
+        mode=mode,
         permission_profile=wf.permission_profile,
         trigger=trigger,
         trigger_payload=payload,

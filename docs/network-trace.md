@@ -45,6 +45,13 @@ The browser side is also enforced, not just observed. Every response carries
 `Content-Security-Policy: default-src 'self'; connect-src 'self'; …`, and the fonts are bundled into the
 build, so the page cannot load anything from another origin.
 
+## Since 0.2: runners
+
+AI developers need a model and a git host, so **runners** make outbound calls by design: to your model provider
+(Anthropic or OpenAI), to your git host (clone, push) and, for pull requests, to the GitHub API. Nothing else in a
+deployment does. The server itself still makes no outbound calls; the tasks, workflow scheduler and webhook
+endpoints added in 0.2 are all inbound. Run the capture below against your own deployment to confirm it.
+
 ## The collector
 
 The collector on each developer machine talks to exactly one host: the server URL the developer

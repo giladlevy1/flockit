@@ -4,17 +4,20 @@ Thanks for helping. A few things matter more here than in most projects.
 
 ## Before you write code
 
-**Check the scope.** Flockit deliberately does not do orchestration, agent execution, code indexing,
-embeddings, IDE plugins, PR review, or hosted SaaS (see the README). Pull requests that add those will be
-declined, however good. If you are unsure, open an issue first.
+**Check the scope.** Flockit does not do code indexing, embeddings, IDE plugins or hosted SaaS (see the README
+and `docs/decisions.md`). If you are unsure whether something fits, open an issue first.
 
-**Never add an outbound call.** No telemetry, analytics, update checks, CDN assets, or third-party APIs,
-from the server, the UI or the collector. `docs/network-trace.md` describes how we verify this.
+**Never add an outbound call from the server or the UI.** No telemetry, analytics, update checks, CDN assets or
+third-party APIs. Runners are the only component that talks to model providers and git hosts.
+`docs/network-trace.md` describes how we verify this.
 
-**The collector's wire format is a security boundary.** Adding a field to
-`collector/src/flockit/redact.py:SESSION_FIELDS` needs a validator, tests in `test_redact.py`, an update
-to the table in the README, and a clear reason. `test_allowlist_is_exactly_these_fields` fails on
-purpose until you do.
+**Redaction is a security boundary.** Session metadata is limited to `redact.SESSION_FIELDS`
+(`test_allowlist_is_exactly_these_fields` fails on purpose when it changes); transcript text goes through
+`conversation.redact_text`. Changes need tests in `test_redact.py` / `test_conversation.py`.
+
+**Consent is a security boundary.** Nothing may start on a person's machine unless they accepted the task or opted
+into auto-start, and webhook-triggered work never auto-starts on a laptop. Anything user-controlled that reaches a
+shell must be passed as an argument or read from a file.
 
 ## Setup
 

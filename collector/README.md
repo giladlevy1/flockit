@@ -1,30 +1,30 @@
-# flockit (collector)
+# flockit (CLI)
 
-The per-developer half of [Flockit](https://github.com/giladlevy1/flockit). It registers
-itself as a Claude Code hook, reports session metadata to **your own** Flockit server, and
-redacts locally before anything leaves your machine.
+The per-machine half of [Flockit](https://github.com/giladlevy1/flockit): one zero-dependency Python package with three
+jobs.
+
+| Command | Where it runs | What it does |
+|---|---|---|
+| `flockit hook` | every developer machine (registered as a Claude Code hook) | reports sessions and their redacted transcripts to **your** Flockit server |
+| `flockit agent` | every developer machine (launchd / systemd user service) | notifies you of tasks; opens Claude Code in a fresh git worktree when you accept one; runs auto-start tasks headless |
+| `flockit runner` | a Docker host in your network | runs AI-developer tasks in sandboxes (Claude Code or Codex), streams the session, pushes the branch, opens a PR |
 
 ```bash
-flockit install --server http://flockit.internal:8080 --token flk_...
+flockit install --server http://flockit.internal:8080 --token flk_...   # hooks + agent
 flockit status
+flockit tasks                      # what is waiting for you
+flockit tasks accept <id>          # or --headless
+flockit agent stop | start | status
+flockit runner build-image
+flockit runner --server http://flockit.internal:8080 --token frn_... [--backend docker|local] [--capacity 2]
 flockit uninstall
 ```
 
-The easiest way to install is the one-line command on your server's **Connect** page,
-which installs this package from the server itself, so no internet access is needed.
+The easiest install is the one-line command on your server's **Connect** page, which installs this package from the server
+itself, with no internet access needed.
 
-## What is sent
+## Redaction
 
-Only these fields, after validation and secret scrubbing (see `src/flockit/redact.py`):
-
-| Field | Example |
-|---|---|
-| session id | Claude Code's session UUID |
-| agent vendor, version, model | `claude-code`, `2.1.3`, `claude-opus-5` |
-| repo | `github.com/acme/api` (credentials and local paths stripped) |
-| branch | `feature/ENG-123-login` |
-| task ref | `ENG-123`, `#42`, or an issue URL without its query string |
-| start source / end reason | `startup`, `prompt_input_exit` |
-
-Never sent: prompts, responses, transcripts, file contents, command output, file paths,
-environment variables.
+Everything is redacted on the machine before it is sent (see `src/flockit/redact.py` and `src/flockit/conversation.py`):
+credentials (API keys, tokens, private keys, connection strings, secret-named assignments, high-entropy blobs) are replaced
+with `[REDACTED]`, and absolute paths are rewritten relative to the repository or to `~`.

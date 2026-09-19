@@ -10,15 +10,23 @@ Please **do not open a public issue**. Use GitHub's private vulnerability report
 
 Especially valuable:
 
-- any way for the collector to transmit a prompt, transcript, file path, environment variable or
-  credential (see `collector/src/flockit/redact.py`);
-- any way for a user to see sessions or people outside their role's scope;
-- any outbound network call from the server, the UI or the collector.
+- any credential, absolute path or username that survives redaction (`collector/src/flockit/redact.py`,
+  `conversation.py`) and reaches the server;
+- any way for a user to see sessions, transcripts, search results, tasks or people outside their role's scope;
+- any way to start work on someone's machine without their consent (they did not accept the task, and did not
+  allow auto-start), or to make a webhook-triggered task auto-start on a laptop;
+- any way for a runner token or a per-task token to act on tasks it did not claim;
+- shell or argument injection through task titles, prompts, repos or branches;
+- any outbound network call from the server or the UI.
 
 ## Design notes for reviewers
 
 - Redaction runs on the developer's machine, before transmission. The server never receives raw hook
-  input.
+  input. Transcripts are captured in full after redaction; paths are rewritten relative to the repository.
+- Tasks for people start only after they accept, unless they opted into auto-start. Webhook-triggered work
+  never auto-starts on a laptop. Laptop runs happen in a new git worktree with a tool allowlist.
+- AI developers run on runners, in a new Docker container per task. Model and git credentials live only on the
+  runner. Each task gets an ingest token scoped to that task, revoked when it ends.
 - Passwords are Argon2 hashes. Login cookies and collector tokens are stored as SHA-256 hashes only.
 - Mutating API requests require the `X-Flockit-Request` header (CSRF protection); the server sends no
   CORS headers.
