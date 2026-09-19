@@ -56,8 +56,8 @@ TASK_SCRIPT = r"""#!/bin/bash
 set -uo pipefail
 cd "$FLOCKIT_WORK"
 TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
-URL="https://$FLOCKIT_REPO.git"
-if [ -n "$TOKEN" ]; then URL="https://x-access-token:${TOKEN}@$FLOCKIT_REPO.git"; fi
+URL="${FLOCKIT_CLONE_URL:-https://$FLOCKIT_REPO.git}"
+if [ -n "$TOKEN" ] && [ -z "${FLOCKIT_CLONE_URL:-}" ]; then URL="https://x-access-token:${TOKEN}@$FLOCKIT_REPO.git"; fi
 git clone --quiet "$URL" repo 1>&2 || { echo "FLOCKIT::error=Could not clone $FLOCKIT_REPO (set GH_TOKEN on the runner for private repositories)"; exit 20; }
 cd repo
 if [ -n "${FLOCKIT_BASE:-}" ]; then git checkout --quiet "$FLOCKIT_BASE" 1>&2 || { echo "FLOCKIT::error=Base branch $FLOCKIT_BASE not found"; exit 21; }; fi
@@ -95,6 +95,8 @@ class RunnerConfig:
     capacity: int = 1
     name: str = ""
     allow_full_local: bool = False
+    # Clone URL template for git hosts that are not reached over HTTPS, e.g. "git@{host}:{path}.git".
+    clone_url: str = ""
 
 
 class CodexConverter:
@@ -184,12 +186,23 @@ class TaskRun:
         if result.ok or (result.status in (400, 413, 422)):
             self.pending = self.pending[200:]
 
+    def _scrub_paths(self, text: str) -> str:
+        for root in getattr(self, "extra_roots", []):
+            if root and root in text:
+                text = text.replace(root.rstrip("/") + "/repo/", "./").replace(root.rstrip("/") + "/repo", ".").replace(root, "<sandbox>")
+        return text
+
     def flush_batch(self, final: bool = False) -> None:
         if self.batch.messages or any(self.batch.usage.values()) or self.batch.files or final:
+            for m in self.batch.messages:
+                m["content"] = self._scrub_paths(m["content"])
+            self.batch.files = {self._scrub_paths(p): n for p, n in self.batch.files.items()}
             payload = self.batch.payload()
+            # One activity event per agent reply, so "turns" means what it means for a person's session.
+            turns = sum(1 for m in self.batch.messages if m["role"] == "assistant" and m["kind"] == "text")
             self.batch.messages, self.batch.files = [], {}
             self.batch.usage = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
-            self.send([self._event("session.transcript", payload), self._event("session.activity")])
+            self.send([self._event("session.transcript", payload)] + [self._event("session.activity") for _ in range(turns)])
 
     # --- sandbox ----------------------------------------------------------
 
@@ -215,9 +228,13 @@ class TaskRun:
             codex_flags = "--full-auto"
         name = self.agent.get("name") or "Flockit AI developer"
         email = f"{self.agent.get('id', 'ai')}@agents.flockit.local"
+        repo = self.task.get("repo") or ""
+        host, _, path = repo.partition("/")
+        clone = self.runner.cfg.clone_url.format(repo=repo, host=host, path=path) if self.runner.cfg.clone_url else ""
         return {
             "FLOCKIT_TASK_ID": self.id,
-            "FLOCKIT_REPO": self.task.get("repo") or "",
+            "FLOCKIT_CLONE_URL": clone,
+            "FLOCKIT_REPO": repo,
             "FLOCKIT_BASE": self.task.get("base_branch") or "",
             "FLOCKIT_BRANCH": self.task["branch"],
             "FLOCKIT_TITLE": self.task["title"],
@@ -258,6 +275,10 @@ class TaskRun:
         try:
             env = self._prepare(workdir)
             cmd, proc_env = self._command(workdir, env)
+            repo_root = "/work/repo" if self.runner.cfg.backend == "docker" else os.path.join(workdir, "repo")
+            if isinstance(self.converter, Converter):
+                self.converter = Converter(repo_root, self.converter.state())
+            self.extra_roots = [os.path.realpath(workdir), workdir, "/work"]
             self.runner.report(self.id, "running")
             # Headless agents do not echo their prompt, so record it as the first message.
             from flockit.conversation import PathRewriter, redact_text

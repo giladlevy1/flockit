@@ -61,14 +61,23 @@ function blocks(text: string): ReactNode[] {
     }
     if (/^\s*([-*•]|\d+[.)])\s+/.test(line)) {
       const ordered = /^\s*\d+[.)]/.test(line);
+      const start = ordered ? Number(line.match(/\d+/)?.[0] ?? 1) : undefined;
       const items: string[] = [];
-      while (i < lines.length && /^\s*([-*•]|\d+[.)])\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*([-*•]|\d+[.)])\s+/, ""));
-        i++;
+      const itemPattern = ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*•]\s+/;
+      while (i < lines.length) {
+        if (itemPattern.test(lines[i])) {
+          items.push(lines[i].replace(itemPattern, ""));
+          i++;
+        } else if (!lines[i].trim() && i + 1 < lines.length && itemPattern.test(lines[i + 1])) {
+          i++; // a blank line between items does not end the list
+        } else if (/^\s{2,}\S/.test(lines[i]) && items.length) {
+          items[items.length - 1] += " " + lines[i].trim(); // an indented continuation line
+          i++;
+        } else break;
       }
       const List = ordered ? "ol" : "ul";
       out.push(
-        <List key={key++} className={(ordered ? "list-decimal" : "list-disc") + " space-y-1 pl-5 marker:text-muted"}>
+        <List key={key++} start={start} className={(ordered ? "list-decimal" : "list-disc") + " space-y-1 pl-5 marker:text-muted"}>
           {items.map((item, n) => (
             <li key={n}>{inline(item, n)}</li>
           ))}

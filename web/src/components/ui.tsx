@@ -49,13 +49,25 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   );
 });
 
-export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
-  return (
-    <label className="block">
+/**
+ * A labelled form field. Single inputs sit inside a <label>. Groups of controls
+ * (segmented buttons, checklists) must pass ``group``: a <label> would bind itself to
+ * the first button inside it, so clicking the caption would select an option.
+ */
+export function Field({ label, hint, children, group }: { label: string; hint?: ReactNode; children: ReactNode; group?: boolean }) {
+  const content = (
+    <>
       <span className="mb-1.5 block text-[13px] font-medium text-ink-2">{label}</span>
       {children}
       {hint && <span className="mt-1.5 block text-xs text-muted">{hint}</span>}
-    </label>
+    </>
+  );
+  return group ? (
+    <div role="group" aria-label={label} className="block">
+      {content}
+    </div>
+  ) : (
+    <label className="block">{content}</label>
   );
 }
 

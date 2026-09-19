@@ -135,6 +135,7 @@ export function NewTaskDialog({
                 ? "The assignee accepts it first. Claude Code then opens in a terminal on their machine."
                 : "Starts in the background on their machine without asking, if they allow auto-start. Otherwise they are asked."
             }
+            group
           >
             <Segmented
               value={mode}
@@ -146,7 +147,7 @@ export function NewTaskDialog({
             />
           </Field>
         )}
-        <Field label="Permissions" hint={PROFILE_TEXT[profile].hint}>
+        <Field label="Permissions" hint={PROFILE_TEXT[profile].hint} group>
           <Segmented
             value={profile}
             onChange={setProfile}

@@ -268,7 +268,7 @@ function AiDevDialog({ me, dev, onClose }: { me: Me; dev: AiDeveloper | null; on
             </Select>
           </Field>
         </div>
-        <Field label="Agent">
+        <Field label="Agent" group>
           <Segmented value={vendor} onChange={setVendor} options={[{ value: "claude-code", label: "Claude Code" }, { value: "codex", label: "Codex" }]} />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -288,7 +288,7 @@ function AiDevDialog({ me, dev, onClose }: { me: Me; dev: AiDeveloper | null; on
           <Textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={4} placeholder="Write tests first. Keep PRs under 300 lines. Never change CI configuration." />
         </Field>
         {teams.data && teams.data.length > 0 && (
-          <Field label="Teams" hint="Leads of these teams see its work.">
+          <Field label="Teams" hint="Leads of these teams see its work." group>
             <div className="flex flex-wrap gap-1.5">
               {teams.data.map((t) => {
                 const on = teamIds.includes(t.id);

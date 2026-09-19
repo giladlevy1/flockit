@@ -308,15 +308,15 @@ function WorkflowEditor({
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           {!isBot ? (
-            <Field label="How it starts" hint={mode === "ask" ? "The assignee accepts each task." : "Starts headless if the assignee allows auto-start."}>
+            <Field label="How it starts" hint={mode === "ask" ? "The assignee accepts each task." : "Starts headless if the assignee allows auto-start."} group>
               <Segmented value={mode} onChange={setMode} options={[{ value: "ask", label: "Ask" }, { value: "auto", label: "Auto-start" }]} />
             </Field>
           ) : (
-            <Field label="How it starts" hint="AI developers start as soon as a runner is free.">
+            <Field label="How it starts" hint="AI developers start as soon as a runner is free." group>
               <div className="flex h-[38px] items-center text-sm text-ink-2">Automatically, in a sandbox</div>
             </Field>
           )}
-          <Field label="Permissions" hint={PROFILE_TEXT[profile].hint}>
+          <Field label="Permissions" hint={PROFILE_TEXT[profile].hint} group>
             <Segmented value={profile} onChange={setProfile} options={(Object.keys(PROFILE_TEXT) as PermissionProfile[]).map((p) => ({ value: p, label: PROFILE_TEXT[p].label }))} />
           </Field>
         </div>

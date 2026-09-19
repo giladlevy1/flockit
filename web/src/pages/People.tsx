@@ -288,7 +288,7 @@ function UserDialog({ user, teams, onClose }: { user: User | null; teams: Team[]
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required disabled={!!user} />
           </Field>
         </div>
-        <Field label="Role" hint={ROLE_TEXT[role]}>
+        <Field label="Role" hint={ROLE_TEXT[role]} group>
           <div className="grid grid-cols-3 gap-1 rounded-lg border border-line p-1">
             {(["developer", "lead", "admin"] as Role[]).map((r) => (
               <button
@@ -305,7 +305,7 @@ function UserDialog({ user, teams, onClose }: { user: User | null; teams: Team[]
             ))}
           </div>
         </Field>
-        <Field label="Teams">
+        <Field label="Teams" group>
           <Checklist items={teams.map((t) => ({ id: t.id, label: t.name }))} value={teamIds} onChange={setTeamIds} />
         </Field>
         <Field label={user ? "Reset password" : "Temporary password"} hint={user ? "Leave empty to keep the current password." : "They can change it after signing in."}>
@@ -382,7 +382,7 @@ function TeamDialog({ team, users, onClose }: { team: Team | null; users: User[]
         <Field label="Name">
           <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="Platform" />
         </Field>
-        <Field label="Members" hint="Leads on this team see every member's sessions.">
+        <Field label="Members" hint="Leads on this team see every member's sessions." group>
           <Checklist items={items} value={members} onChange={setMembers} />
         </Field>
         <ErrorNote error={save.error ?? remove.error} />

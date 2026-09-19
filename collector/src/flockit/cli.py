@@ -161,7 +161,7 @@ def _cmd_runner(args: argparse.Namespace) -> int:
         return 2
     cfg = runner.RunnerConfig(
         server_url=server, token=token, backend=args.backend, image=args.image, capacity=args.capacity,
-        name=args.name or "", allow_full_local=args.allow_full_local,
+        name=args.name or "", allow_full_local=args.allow_full_local, clone_url=args.clone_url,
     )
     try:
         runner.Runner(cfg).run_forever()
@@ -201,6 +201,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--capacity", type=int, default=int(os.environ.get("FLOCKIT_RUNNER_CAPACITY", "1")))
     p.add_argument("--name", help="how this runner appears in Flockit")
     p.add_argument("--allow-full-local", action="store_true", help="local backend: honour the full-permission profile")
+    p.add_argument("--clone-url", default=os.environ.get("FLOCKIT_CLONE_URL_TEMPLATE", ""),
+                   help='clone URL template, e.g. "git@{host}:{path}.git" (default: https://{repo}.git)')
     p.set_defaults(func=_cmd_runner)
 
     p = sub.add_parser("uninstall", help="remove hooks and local config")
