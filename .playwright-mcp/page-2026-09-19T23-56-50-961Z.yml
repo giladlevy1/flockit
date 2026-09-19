@@ -1,0 +1,19 @@
+- generic [ref=f17e3]:
+  - banner [ref=f17e4]:
+    - generic [ref=f17e5]:
+      - link "Flockit home" [ref=f17e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f17e7]: Flockit
+      - navigation [ref=f17e12]:
+        - link "Work1" [ref=f17e13] [cursor=pointer]:
+          - /url: /
+        - link "AI developers" [ref=f17e14] [cursor=pointer]:
+          - /url: /ai
+        - link "Connect" [ref=f17e15] [cursor=pointer]:
+          - /url: /connect
+        - button "More" [ref=f17e17]
+      - generic [ref=f17e20]:
+        - generic [ref=f17e21]: Acme (demo)
+        - button "Account menu" [ref=f17e23]:
+          - generic [aria-hidden] [ref=f17e24]: MC
+  - main [ref=f17e25]

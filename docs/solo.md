@@ -36,6 +36,8 @@ up in Flockit within seconds, with the repo, branch, model and the whole convers
 Nothing about your machine leaves it: credentials are stripped and paths are rewritten before anything is sent, and
 the only address the collector talks to is your own server. See [what is captured](../SECURITY.md).
 
+![The Connect page: install command, editor token, Slack](images/connect.png)
+
 ## 3. Give your editor the memory
 
 On **Connect**, create an **editor token**, then:

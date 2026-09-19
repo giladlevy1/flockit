@@ -84,6 +84,8 @@ The pattern worth copying: **one workbench per important customer**. Give the AI
 tickets. It reproduces the bug against data shaped like theirs — their plan, their volumes, their edge cases — instead
 of a clean fixture that never fails. See [docs/workbenches.md](workbenches.md).
 
+![Workflows: manual, scheduled and webhook triggers](images/workflows.png)
+
 ## 6. Workflows
 
 **Workflows** create tasks without anyone typing them:
@@ -95,6 +97,8 @@ of a clean fixture that never fails. See [docs/workbenches.md](workbenches.md).
 
 A workflow can be aimed at a person (it lands in their inbox, and Claude Code opens on their machine when they accept)
 or at an AI developer (it runs in a sandbox). Set that per workflow.
+
+![Tasks handed to people and AI developers](images/tasks.png)
 
 ## 7. Slack
 
@@ -116,6 +120,8 @@ hand work to an AI developer without leaving the terminal. [docs/mcp.md](mcp.md)
   codebase it has edited, its record, and what it costs. That is how you decide which one gets the next job.
 - **Search** covers every transcript in scope. "How did we fix the checkout race?" returns the session, not a guess.
 - **Audit** (admins) records every task, every dispatch, every permission change.
+
+![Org-wide search across every transcript](images/search.png)
 
 ## Rolling it out without a fight
 

@@ -47,16 +47,16 @@ Open <http://localhost:8080>. Or look around a fully populated demo first:
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/tasks.png" alt="Tasks for people and AI developers"><br><sub><b>Tasks</b>: people and AI developers side by side</sub></td>
-<td width="50%"><img src="docs/images/task-result.png" alt="A task finished by an AI developer, with its pull request"><br><sub><b>A webhook-triggered bug</b>, fixed by an AI developer, PR ready</sub></td>
+<td width="50%"><img src="docs/images/ai-developer.png" alt="An AI developer's page: its workbench, what it knows, its record"><br><sub><b>An AI developer</b>: its workbench, the areas it knows, its record</sub></td>
+<td width="50%"><img src="docs/images/developer-home.png" alt="A developer's home: a task waiting, then their sessions"><br><sub><b>A developer's home</b>: what needs a decision, then their work</sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/developer-inbox.png" alt="A developer's inbox with a task to accept"><br><sub><b>A developer's inbox</b>: accept, and Claude Code opens on their machine</sub></td>
-<td><img src="docs/images/session-timeline.png" alt="A session's full conversation"><br><sub><b>Every session as a timeline</b>: prompts, tool calls, files</sub></td>
+<td><img src="docs/images/session-timeline.png" alt="A session's full conversation"><br><sub><b>Every session as a timeline</b>: prompts, tool calls, files — and <b>Continue</b> to pick it up again</sub></td>
+<td><img src="docs/images/task-result.png" alt="A task finished by an AI developer, with its pull request"><br><sub><b>A webhook-triggered bug</b>, fixed by an AI developer, PR ready</sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/workflows.png" alt="Workflows with schedules and webhooks"><br><sub><b>Workflows</b>: manual, scheduled, webhook</sub></td>
-<td><img src="docs/images/ai-developers.png" alt="AI developers and runners"><br><sub><b>AI developers</b> and the runners they work on</sub></td>
+<td><img src="docs/images/insights.png" alt="Insights: live work, agent hours, model mix, overlapping tickets"><br><sub><b>Insights</b> for leads: people and AI in one record</sub></td>
+<td><img src="docs/images/ai-developers.png" alt="AI developers, runners and workbenches"><br><sub><b>AI developers</b>, their runners and their workbenches</sub></td>
 </tr>
 </table>
 

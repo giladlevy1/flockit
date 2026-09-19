@@ -1,0 +1,31 @@
+- generic [ref=f21e3]:
+  - banner [ref=f21e4]:
+    - generic [ref=f21e5]:
+      - link "Flockit home" [ref=f21e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f21e7]: Flockit
+      - navigation [ref=f21e12]:
+        - link "Work" [ref=f21e13] [cursor=pointer]:
+          - /url: /
+        - link "AI developers" [ref=f21e14] [cursor=pointer]:
+          - /url: /ai
+        - link "Connect" [ref=f21e15] [cursor=pointer]:
+          - /url: /connect
+        - button "More" [ref=f21e17]
+      - generic [ref=f21e20]:
+        - generic [ref=f21e21]: Acme (demo)
+        - button "Account menu" [ref=f21e23]:
+          - generic [aria-hidden] [ref=f21e24]: MC
+  - main [ref=f21e25]:
+    - generic [ref=f21e26]:
+      - generic [ref=f21e28]:
+        - heading "Search" [level=1] [ref=f21e29]
+        - generic [ref=f21e30]: Everything people and agents said and did, across every session in the organisation.
+      - textbox "Search sessions" [active] [ref=f21e32]:
+        - /placeholder: How did we fix the checkout race? Who touched the billing migration?
+        - text: retry
+      - generic [ref=f21e33]:
+        - button "Everything" [ref=f21e34]
+        - button "Conversation" [ref=f21e35]
+        - button "Commands and edits" [ref=f21e36]
+        - button "Tool output" [ref=f21e37]

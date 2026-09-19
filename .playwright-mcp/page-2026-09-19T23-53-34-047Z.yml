@@ -1,0 +1,42 @@
+- generic [ref=f12e3]:
+  - banner [ref=f12e4]:
+    - generic [ref=f12e5]:
+      - link "Flockit home" [ref=f12e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f12e7]: Flockit
+      - navigation [ref=f12e12]:
+        - link "Work" [ref=f12e13] [cursor=pointer]:
+          - /url: /
+        - link "AI developers" [ref=f12e14] [cursor=pointer]:
+          - /url: /ai
+        - link "Connect" [ref=f12e15] [cursor=pointer]:
+          - /url: /connect
+        - button "More" [ref=f12e17]
+      - generic [ref=f12e20]:
+        - generic [ref=f12e21]: Acme (demo)
+        - button "Account menu" [ref=f12e23]:
+          - generic [aria-hidden] [ref=f12e24]: MC
+  - main [ref=f12e25]:
+    - generic [ref=f12e26]:
+      - generic [ref=f12e27]:
+        - generic [ref=f12e28]:
+          - heading "All work" [level=1] [ref=f12e29]
+          - generic [ref=f12e30]: Every coding session, human and AI, with the full conversation.
+        - button "New task" [ref=f12e32]
+      - generic [ref=f12e34]:
+        - generic [ref=f12e35]:
+          - button "Mine" [ref=f12e36]
+          - button "My teams" [ref=f12e37]
+          - button "Everyone" [ref=f12e38]
+        - generic [ref=f12e40]:
+          - button "Sessions" [ref=f12e41]
+          - button "Insights" [ref=f12e42]
+        - textbox "Search sessions" [ref=f12e44]:
+          - /placeholder: Search titles, repos, tickets…
+        - radiogroup "Date range" [ref=f12e45]:
+          - radio "24h" [ref=f12e46]
+          - radio "7d" [checked] [ref=f12e47]
+          - radio "30d" [ref=f12e48]
+          - radio "90d" [ref=f12e49]
+          - radio "All" [ref=f12e50]
+        - button "Filters" [ref=f12e51]

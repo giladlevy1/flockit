@@ -215,3 +215,37 @@ async def test_cancelling_a_task_kills_its_token(setup, client_factory):
     await lead.post(f"/api/tasks/{t['id']}/cancel")
     assert (await anon.get("/api/ingest/whoami", headers=token)).status_code == 401
     assert (await send(anon, claim["ingest_token"], event("session.activity", "x"))).status_code == 401
+
+
+async def test_the_ai_developer_page_renders_real_work_not_just_empty_lists(setup, client_factory):
+    """The profile page is the one place tasks, sessions, repositories and edited areas are
+    serialised together. With every list empty it will pass whatever it is given, so this
+    puts real rows through it — which is how a wrong column name gets caught here rather
+    than on someone's screen."""
+    lead, ai, runner = setup["lead"], setup["ai"], setup["runner"]
+    t = await new_task(lead, ai["id"], title="Fix the invoice export", repo="github.com/acme/api")
+    anon = client_factory()
+    claim = (await anon.post("/api/runner/poll", json=HELLO, headers=bearer(runner["token"]))).json()["task"]
+    token = claim["ingest_token"]
+    await send(anon, token, event("session.start", "ai-sess-1", repo="github.com/acme/api", origin="workflow"))
+    ev = event("session.transcript", "ai-sess-1")
+    ev["transcript"] = {
+        "title": "Fix the invoice export",
+        "messages": [
+            {"id": "m1", "seq": 0, "role": "user", "kind": "text", "content": "Reproduce the 500.", "at": "2026-09-19T10:00:00Z"},
+            {"id": "m2", "seq": 1, "role": "assistant", "kind": "text", "content": "Found it.", "at": "2026-09-19T10:01:00Z"},
+        ],
+        "usage": {"input": 10, "output": 5, "cache_read": 0},
+        "files": [{"path": "billing/export.py", "edits": 2}, {"path": "tests/test_export.py", "edits": 1}],
+    }
+    assert (await send(anon, token, ev)).json()["accepted"] == 1
+    await anon.post(f"/api/runner/tasks/{t['id']}/status", json={"status": "succeeded", "result": "Done."}, headers=bearer(runner["token"]))
+
+    profile = (await lead.get(f"/api/ai-developers/{ai['id']}")).json()
+    assert [x["title"] for x in profile["tasks"]] == ["Fix the invoice export"]
+    assert profile["tasks"][0]["status"] == "succeeded"
+    session = profile["sessions"][0]
+    assert session["repo"] == "github.com/acme/api" and session["files_touched"] == 2 and session["turns"] >= 0
+    assert profile["expertise"]["repos"] == [{"repo": "github.com/acme/api", "tasks": 1}]
+    # Areas come from the directories it actually edited, which is what makes it useful.
+    assert {a["area"] for a in profile["expertise"]["areas"]} == {"billing", "tests"}

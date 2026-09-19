@@ -1,0 +1,40 @@
+- generic [ref=f20e3]:
+  - banner [ref=f20e4]:
+    - generic [ref=f20e5]:
+      - link "Flockit home" [ref=f20e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f20e7]: Flockit
+      - navigation [ref=f20e12]:
+        - link "Work" [ref=f20e13] [cursor=pointer]:
+          - /url: /
+        - link "AI developers" [ref=f20e14] [cursor=pointer]:
+          - /url: /ai
+        - link "Connect" [ref=f20e15] [cursor=pointer]:
+          - /url: /connect
+        - button "More" [ref=f20e17]
+      - generic [ref=f20e20]:
+        - generic [ref=f20e21]: Acme (demo)
+        - button "Account menu" [ref=f20e23]:
+          - generic [aria-hidden] [ref=f20e24]: MC
+  - main [ref=f20e25]:
+    - generic [ref=f20e26]:
+      - generic [ref=f20e27]:
+        - generic [ref=f20e28]:
+          - heading "Tasks" [level=1] [ref=f20e29]
+          - generic [ref=f20e30]: "Work handed to people and AI developers: by hand, from a workflow, on a schedule or from a webhook."
+        - button "New task" [ref=f20e32]
+      - generic [ref=f20e34]:
+        - generic [ref=f20e35]:
+          - button "Assigned to me" [ref=f20e36]
+          - button "All tasks" [ref=f20e37]
+        - generic [ref=f20e38]:
+          - button "Open 0" [ref=f20e39]
+          - button "Running 0" [ref=f20e40]
+          - button "Done 0" [ref=f20e41]
+          - button "Failed 0" [ref=f20e42]
+          - button "All 0" [ref=f20e43]
+          - textbox "Search tasks" [ref=f20e45]
+      - complementary "Task" [ref=f20e51]:
+        - generic [ref=f20e52]:
+          - heading "Task" [level=2] [ref=f20e53]
+          - button "Close" [ref=f20e54]

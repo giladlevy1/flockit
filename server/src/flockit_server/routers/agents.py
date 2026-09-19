@@ -464,7 +464,7 @@ async def ai_developer_profile(
                 "repo": s.repo,
                 "started_at": s.started_at,
                 "ended_at": s.ended_at,
-                "turns": s.turns,
+                "turns": s.turn_count,
                 "files_touched": s.files_touched,
             }
             for s in sessions

@@ -1,0 +1,55 @@
+- generic [ref=f19e3]:
+  - banner [ref=f19e4]:
+    - generic [ref=f19e5]:
+      - link "Flockit home" [ref=f19e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f19e7]: Flockit
+      - navigation [ref=f19e12]:
+        - link "Work" [ref=f19e13] [cursor=pointer]:
+          - /url: /
+        - link "AI developers" [ref=f19e14] [cursor=pointer]:
+          - /url: /ai
+        - link "Connect" [ref=f19e15] [cursor=pointer]:
+          - /url: /connect
+        - button "More" [ref=f19e17]
+      - generic [ref=f19e20]:
+        - generic [ref=f19e21]: Acme (demo)
+        - button "Account menu" [ref=f19e23]:
+          - generic [aria-hidden] [ref=f19e24]: NL
+  - main [ref=f19e25]:
+    - generic [ref=f19e26]:
+      - generic [ref=f19e27]:
+        - generic [ref=f19e28]:
+          - heading "Your work" [level=1] [ref=f19e29]
+          - generic [ref=f19e30]: Every coding session, human and AI, with the full conversation.
+        - button "New task" [ref=f19e32]
+      - generic [ref=f19e34]:
+        - generic [ref=f19e35]:
+          - generic [ref=f19e36]:
+            - heading "Get started" [level=2] [ref=f19e37]
+            - paragraph [ref=f19e38]: 0 of 3 done — about two minutes.
+          - button "Dismiss" [ref=f19e39]
+        - list [ref=f19e40]:
+          - listitem [ref=f19e41]:
+            - generic [ref=f19e42]: Connect this machine
+            - paragraph [ref=f19e47]: One command. Your sessions appear here as you work, and work can be sent to you.
+            - link [ref=f19e49] [cursor=pointer]:
+              - /url: /connect
+              - button "Get the command" [ref=f19e50]
+          - listitem [ref=f19e53]:
+            - generic [ref=f19e54]: Hire your first AI developer
+            - paragraph [ref=f19e60]: A teammate that takes tasks, works in a sandbox with a real database, and opens pull requests.
+            - generic [ref=f19e61]: An admin creates these.
+          - listitem [ref=f19e62]:
+            - generic [ref=f19e63]: Give it something to do
+            - paragraph [ref=f19e68]: A real ticket works best. You will see it work, step by step, and get a pull request at the end.
+      - generic [ref=f19e69]:
+        - textbox "Search sessions" [ref=f19e71]:
+          - /placeholder: Search titles, repos, tickets…
+        - radiogroup "Date range" [ref=f19e72]:
+          - radio "24h" [ref=f19e73]
+          - radio "7d" [checked] [ref=f19e74]
+          - radio "30d" [ref=f19e75]
+          - radio "90d" [ref=f19e76]
+          - radio "All" [ref=f19e77]
+        - button "Filters" [ref=f19e78]
