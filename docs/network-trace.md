@@ -5,7 +5,7 @@ no license check. This page records how we verified it, so you can repeat it on 
 
 ## Method
 
-Captured on 2026-09-19 against a fresh `docker compose up` of commit `26f3f91` (Docker Desktop, macOS).
+Captured on 2026-09-19 against a fresh `docker compose up` of commit `b11b763` (the first release commit; later commits did not change the server's network behaviour) (Docker Desktop, macOS).
 
 Three `tcpdump` captures ran at the same time:
 
