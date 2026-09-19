@@ -15,6 +15,7 @@ from flockit_server.models import DispatchMode, LoginSession, Organization, Role
 from flockit_server.people import user_out
 from flockit_server.routers.connect import safe_url
 from flockit_server.runs import audit
+from flockit_server.runs import now as runs_now
 from flockit_server.schemas import LoginIn, MeOut, OrgOut, PasswordChange, SetupIn
 from flockit_server.scope import SCOPE_LABELS
 from flockit_server.security import hash_password, hash_token, new_login_token, verify_password
@@ -110,7 +111,13 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
 async def me(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> MeOut:
     org = await db.get(Organization, user.org_id)
     assert org is not None
-    return MeOut(user=user_out(user), org=OrgOut(id=org.id, name=org.name), scope=SCOPE_LABELS[user.role])
+    return MeOut(
+        user=user_out(user),
+        org=OrgOut(id=org.id, name=org.name),
+        scope=SCOPE_LABELS[user.role],
+        onboarded=user.onboarded_at is not None,
+        slack_linked=bool(user.slack_user_id),
+    )
 
 
 @router.post("/auth/password")
@@ -130,12 +137,16 @@ async def change_password(
 class MeUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     dispatch_mode: Optional[DispatchMode] = None
+    # Set once the getting-started steps are done (or skipped); clears the checklist.
+    onboarded: Optional[bool] = None
 
 
 @router.patch("/auth/me", response_model=MeOut)
 async def update_me(body: MeUpdate, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> MeOut:
     if body.name is not None:
         user.name = body.name.strip()
+    if body.onboarded is not None:
+        user.onboarded_at = runs_now() if body.onboarded else None
     if body.dispatch_mode is not None and body.dispatch_mode != user.dispatch_mode:
         await audit(db, user.org_id, user, "user.dispatch_mode", "user", user.id, {"mode": body.dispatch_mode.value})
         user.dispatch_mode = body.dispatch_mode

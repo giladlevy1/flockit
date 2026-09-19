@@ -176,8 +176,52 @@ class User(Base):
         UUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
     )
     instructions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # The workbench this AI developer works in: its database and services, kept between tasks.
+    environment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("environment.id", ondelete="SET NULL"), nullable=True
+    )
+    # Where this AI developer works unless a task says otherwise.
+    default_repo: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    # People only: linked by typing a code into Slack, so Flockit never calls Slack to look anyone up.
+    # The code is stored as a hash and expires; it is not an API token and grants nothing on its own.
+    slack_user_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    slack_link_code_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    slack_link_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set the first time someone finishes (or skips) the getting-started steps.
+    onboarded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     teams: Mapped[List["Team"]] = relationship(secondary="team_member", back_populates="members", lazy="selectin")
+
+
+class Environment(Base):
+    """A workbench for an AI developer: the services it develops against — a database with
+    realistic data, a queue, a stand-in for one customer's account — kept between tasks the
+    way a person's own machine is. An agent that can run the app and the tests against
+    something close to production can check its own work before a human ever sees it.
+
+    ``services`` is a list of ``{name, image, env, port, url_env, url, ready}``. The runner
+    starts each one on a private network next to the sandbox, keeps its volume, and injects
+    ``url_env=url`` (for example ``DATABASE_URL``) into the agent's environment. Nothing here
+    is a secret: values the org would not paste into a ticket belong in ``secret_names``,
+    which are passed through from the runner's own environment by name.
+    """
+
+    __tablename__ = "environment"
+    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_environment_org_name"),)
+
+    id: Mapped[uuid.UUID] = _pk()
+    org_id: Mapped[uuid.UUID] = _org()
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    services: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    variables: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    secret_names: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    # Runs once, the first time the services are created: migrations, seed data, a customer fixture.
+    setup_script: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Keep the services and their data between tasks (a real workbench) or throw them away each time.
+    persistent: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class Team(Base):
@@ -224,6 +268,10 @@ class ApiToken(Base):
     org_id: Mapped[uuid.UUID] = _org()
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(120))
+    # "collector" writes sessions and nothing else; "mcp" reads this person's own view of
+    # Flockit from their editor. Separate kinds so a token stolen from a laptop's config
+    # cannot be used to read the organisation's transcripts.
+    kind: Mapped[str] = mapped_column(String(16), default="collector", server_default="collector")
     prefix: Mapped[str] = mapped_column(String(16))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = _created()
@@ -419,6 +467,9 @@ class WorkflowRun(Base):
         UUID(as_uuid=True), ForeignKey("session.id", ondelete="SET NULL", use_alter=True), nullable=True
     )
     interactive: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # Where to report the result: ``{"slack": {"channel": "C…", "thread_ts": "…"}}``. The runner
+    # posts it, because the server makes no outbound calls.
+    notify: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     pr_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

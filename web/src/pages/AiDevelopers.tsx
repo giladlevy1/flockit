@@ -1,20 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Pencil, Plus, Server, Trash2 } from "lucide-react";
+import { AlertTriangle, Database, Pencil, Plus, Server, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
 import { Dialog } from "../components/Dialog";
+import { NewAiDeveloper } from "../components/work/NewAiDeveloper";
+import { Workbenches } from "../components/work/Workbenches";
 import { Badge, Button, Card, CopyButton, ErrorNote, Field, Input, PageHeader, Spinner } from "../components/ui";
 import { BotAvatar, Segmented, Select, Textarea, TaskStatus, money, tokens } from "../components/work";
 import { api } from "../lib/api";
 import { prettyModel, relativeTime } from "../lib/format";
-import type { AiDeveloper, ConnectInfo, Me, Runner, Team, User } from "../lib/types";
+import type { AiDeveloper, ConnectInfo, Environment, Me, Runner, Team, User } from "../lib/types";
 
 export function AiDevelopersPage({ me }: { me: Me }) {
   const isAdmin = me.user.role === "admin";
   const devs = useQuery({ queryKey: ["ai-developers"], queryFn: () => api<AiDeveloper[]>("/api/ai-developers"), refetchInterval: 5000 });
   const runners = useQuery({ queryKey: ["runners"], queryFn: () => api<Runner[]>("/api/runners"), refetchInterval: 5000 });
   const [editing, setEditing] = useState<AiDeveloper | "new" | null>(null);
+  const [hiring, setHiring] = useState(false);
   const [addingRunner, setAddingRunner] = useState(false);
   const onlineRunners = (runners.data ?? []).filter((r) => r.online);
 
@@ -25,8 +28,8 @@ export function AiDevelopersPage({ me }: { me: Me }) {
         sub="Members of your organisation who are agents. Assign them tasks like anyone else; they work in sandboxes on your runners and open pull requests."
         actions={
           isAdmin && (
-            <Button variant="primary" onClick={() => setEditing("new")}>
-              <Plus className="size-4" /> New AI developer
+            <Button variant="primary" onClick={() => setHiring(true)}>
+              <Plus className="size-4" /> Hire an AI developer
             </Button>
           )
         }
@@ -52,7 +55,9 @@ export function AiDevelopersPage({ me }: { me: Me }) {
                 <BotAvatar id={d.id} size={42} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <h3 className="truncate font-semibold">{d.name}</h3>
+                    <Link to={`/ai/${d.id}`} className="truncate font-semibold hover:underline">
+                      {d.name}
+                    </Link>
                     {!d.is_active && <Badge>Retired</Badge>}
                   </div>
                   <div className="text-sm text-muted">
@@ -80,7 +85,17 @@ export function AiDevelopersPage({ me }: { me: Me }) {
                 <Stat label="Failed" value={String(d.stats.tasks.failed ?? 0)} />
                 <Stat label="Cost" value={money(d.stats.cost_usd)} />
               </dl>
-              <div className="mt-4 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                {d.environment ? (
+                  <Badge tone="accent">
+                    <Database className="size-3" /> {d.environment.name}
+                  </Badge>
+                ) : (
+                  <Badge>no workbench</Badge>
+                )}
+                {d.default_repo && <span className="truncate">{d.default_repo}</span>}
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                 {d.sponsor && <span>Sponsored by {d.sponsor.name}</span>}
                 {d.teams.map((t) => (
                   <Badge key={t.id}>{t.name}</Badge>
@@ -102,8 +117,8 @@ export function AiDevelopersPage({ me }: { me: Me }) {
             workflow.
           </p>
           {isAdmin && (
-            <Button size="sm" className="mt-4" onClick={() => setEditing("new")}>
-              <Plus className="size-3.5" /> New AI developer
+            <Button size="sm" variant="primary" className="mt-4" onClick={() => setHiring(true)}>
+              <Plus className="size-3.5" /> Hire an AI developer
             </Button>
           )}
         </Card>
@@ -143,7 +158,10 @@ export function AiDevelopersPage({ me }: { me: Me }) {
         )}
       </Card>
 
+      <Workbenches isAdmin={isAdmin} />
+
       {editing && <AiDevDialog me={me} dev={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
+      <NewAiDeveloper open={hiring} onClose={() => setHiring(false)} />
       {addingRunner && <AddRunnerDialog onClose={() => setAddingRunner(false)} />}
     </div>
   );
@@ -223,6 +241,9 @@ function AiDevDialog({ me, dev, onClose }: { me: Me; dev: AiDeveloper | null; on
   const [instructions, setInstructions] = useState(dev?.instructions ?? "");
   const [teamIds, setTeamIds] = useState<string[]>(dev?.teams.map((t) => t.id) ?? []);
   const [active, setActive] = useState(dev?.is_active ?? true);
+  const [repo, setRepo] = useState(dev?.default_repo ?? "");
+  const [envId, setEnvId] = useState(dev?.environment?.id ?? "");
+  const envs = useQuery({ queryKey: ["environments"], queryFn: () => api<Environment[]>("/api/environments") });
 
   const save = useMutation({
     mutationFn: () => {
@@ -235,6 +256,8 @@ function AiDevDialog({ me, dev, onClose }: { me: Me; dev: AiDeveloper | null; on
         instructions: instructions || null,
         team_ids: teamIds,
         is_active: active,
+        default_repo: repo || null,
+        environment_id: envId || null,
       };
       return dev ? api(`/api/ai-developers/${dev.id}`, { method: "PUT", json: body }) : api("/api/ai-developers", { method: "POST", json: body });
     },
@@ -282,6 +305,21 @@ function AiDevDialog({ me, dev, onClose }: { me: Me; dev: AiDeveloper | null; on
           </Field>
           <Field label="Runner pool" hint="Only runners in this pool take its tasks. Empty: runners with no pool.">
             <Input value={pool} onChange={(e) => setPool(e.target.value.toLowerCase())} placeholder="linux" pattern="[a-z0-9][a-z0-9_\-]*" />
+          </Field>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Repository" hint="Where it works unless a task says otherwise. Slack commands use this.">
+            <Input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="github.com/acme/api" maxLength={300} />
+          </Field>
+          <Field label="Workbench" hint="The services it develops against, kept between tasks.">
+            <Select value={envId} onChange={(e) => setEnvId(e.target.value)}>
+              <option value="">None</option>
+              {(envs.data ?? []).map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+            </Select>
           </Field>
         </div>
         <Field label="Standing instructions" hint="Prepended to every task: conventions, definition of done, what never to touch.">

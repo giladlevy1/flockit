@@ -7,14 +7,20 @@ Three kinds of process, all inside the customer's network, plus the Postgres the
 ┌─────────────────────────────┐            ┌────────────────────────────────────┐        ┌───────────────────────────────┐
 │ Claude Code ──hooks──▶ flockit hook      │ flockit server (one container)     │        │ flockit runner                │
 │   (redact, outbox, flush) ───────────────▶  ingest · scope · search           │◀───────│  long-poll · stream sessions  │
-│                             │  HTTP(S)   │  tasks · workflows · scheduler     │        │  ┌─────────────────────────┐  │
-│ flockit agent ◀──long-poll───────────────│  webhooks (inbound)                │        │  │ sandbox per task         │  │
-│   notify · worktree · open  │            │  web UI · /install.sh              │        │  │ clone → agent → push     │──┼──▶ model API,
-│   terminal or run headless  │            │            │                       │        │  └─────────────────────────┘  │    git host
-└─────────────────────────────┘            │            ▼                       │        └───────────────────────────────┘
-                                           │  postgres (not published)          │
-       GitHub, Jira, Sentry… ──webhook────▶└────────────────────────────────────┘
+│      ▲                      │  HTTP(S)   │  tasks · workflows · scheduler     │        │  ┌─────────────────────────┐  │
+│      └── flockit mcp ────────────────────▶  webhooks · /api/slack (inbound)   │        │  │ sandbox per task        │  │
+│                             │            │  web UI · /install.sh              │        │  │ clone → agent → push    │──┼──▶ model API,
+│ flockit agent ◀──long-poll───────────────│            │                       │        │  └───────────┬─────────────┘  │    git host,
+│   notify · worktree · open  │            │            ▼                       │        │  ┌───────────┴─────────────┐  │    Slack reply
+│   terminal or run headless  │            │  postgres (not published)          │        │  │ workbench (kept)        │  │
+└─────────────────────────────┘            │                                    │        │  │ postgres · cache        │  │
+                                           │                                    │        │  └─────────────────────────┘  │
+  GitHub, Jira, Sentry, Slack ──inbound───▶└────────────────────────────────────┘        └───────────────────────────────┘
 ```
+
+The one rule the picture encodes: **arrows leave the network only from a runner.** The server and the UI never open an
+outbound connection, which is why a webhook or a Slack command is answered in the response to that same request, and why a
+Slack result is posted by the runner that did the work.
 
 ## Server (`server/`)
 
@@ -30,7 +36,9 @@ FastAPI, SQLAlchemy 2 (async), asyncpg, Alembic (migrations run on start), croni
 | `routers/workflows.py` | Workflows, run now, webhook endpoint, `run_due_schedules` (advisory-locked, safe with replicas) |
 | `routers/machines.py` | Laptop agent and runner APIs: long-poll claims with `FOR UPDATE SKIP LOCKED`, per-task ingest tokens, status reports, stuck-task detection |
 | `routers/search.py` | Transcripts, files, org-wide full-text search (`to_tsvector`, GIN index, `ts_headline`) |
-| `routers/agents.py` | AI developers, runners, audit log |
+| `routers/agents.py` | AI developers (including the per-developer profile: workbench, expertise from past work, tasks, sessions, workflows), runners, audit log |
+| `routers/environments.py` | Workbenches: the declaration of the services an AI developer develops against, validated before it can reach a runner's command line |
+| `routers/slack.py` | Slash commands and events. Signature-verified, inbound only; account linking by a code the person types in Slack |
 | `main.py` | App, security headers (strict CSP), SPA serving, background sweeper (abandoned sessions, stuck tasks) and scheduler |
 
 ### Task lifecycle
@@ -41,7 +49,7 @@ offered ──accept──▶ queued ──claim──▶ starting ──session
 ```
 
 - **People:** a task is `offered` unless it is set to auto-start *and* the person allows auto-start (`dispatch_mode=auto`).
-  Webhook-triggered work for people is always `offered`. Accepting queues it as interactive (a terminal opens) or headless.
+  Work from an untrusted trigger (webhook, Slack) for a person is always `offered`, whatever the workflow says. Accepting queues it as interactive (a terminal opens) or headless.
 - **AI developers:** tasks are `queued` immediately; a runner in the right pool claims them.
 - A session reports `FLOCKIT_TASK_ID` (laptops) or uses its task-scoped token (runners); ingest links it to the task and
   moves the task to `running`. Headless runs finish when the agent or runner reports; interactive tasks finish when the
@@ -61,6 +69,9 @@ offered ──accept──▶ queued ──claim──▶ starting ──session
 | `launch.py` | Start script (everything quoted; the prompt is read from a file) and terminal launching; desktop notifications |
 | `service.py` | launchd / systemd user service |
 | `runner.py` | `flockit runner`: Docker (or local) sandboxes, Claude Code or Codex headless, live transcript streaming, push, PR |
+| `workbench.py` | The services an AI developer works against: a private network, one container per service, volumes kept between tasks, a seed script that runs once |
+| `notify.py` | Posting a finished task back to the Slack thread it came from — from the runner, so the server stays zero-egress |
+| `mcp.py` | `flockit mcp`: the org's sessions over MCP (stdio JSON-RPC), scoped by the API to whatever its owner may see |
 
 ## Data model
 

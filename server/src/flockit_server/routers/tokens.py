@@ -20,14 +20,16 @@ router = APIRouter(prefix="/api/tokens", tags=["tokens"])
 
 
 def _out(t: ApiToken) -> TokenOut:
-    return TokenOut(id=t.id, name=t.name, prefix=t.prefix, created_at=t.created_at, last_used_at=t.last_used_at)
+    return TokenOut(
+        id=t.id, name=t.name, kind=t.kind, prefix=t.prefix, created_at=t.created_at, last_used_at=t.last_used_at
+    )
 
 
 @router.get("", response_model=List[TokenOut])
 async def list_tokens(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
     rows = await db.execute(
         select(ApiToken)
-        .where(ApiToken.user_id == user.id, ApiToken.revoked_at.is_(None))
+        .where(ApiToken.user_id == user.id, ApiToken.revoked_at.is_(None), ApiToken.run_id.is_(None))
         .order_by(ApiToken.created_at.desc())
     )
     return [_out(t) for t in rows.scalars()]
@@ -35,8 +37,12 @@ async def list_tokens(user: User = Depends(current_user), db: AsyncSession = Dep
 
 @router.post("", response_model=TokenCreated, status_code=201)
 async def create_token(body: TokenIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
+    if body.kind not in ("collector", "mcp"):
+        raise HTTPException(422, "kind must be collector or mcp")
     token, prefix, token_hash = new_collector_token()
-    row = ApiToken(org_id=user.org_id, user_id=user.id, name=body.name.strip(), prefix=prefix, token_hash=token_hash)
+    row = ApiToken(
+        org_id=user.org_id, user_id=user.id, name=body.name.strip(), kind=body.kind, prefix=prefix, token_hash=token_hash
+    )
     db.add(row)
     await db.commit()
     await db.refresh(row)

@@ -104,6 +104,16 @@ def _base_ref(root: str, base_branch: Optional[str]) -> str:
     raise WorkspaceError("The repository has no commits to branch from")
 
 
+def existing_repo(repo: Optional[str]) -> Optional[str]:
+    """The developer's own checkout of this repository, if this machine has seen it.
+
+    Used when continuing an earlier session: that conversation is about *that* working
+    copy, so reopening it anywhere else would be a different piece of work. Returns None
+    when the repository is unknown here, and the caller falls back to a fresh worktree.
+    """
+    return repos.find(repo)
+
+
 def worktrees_dir() -> Path:
     return config.home() / "worktrees"
 

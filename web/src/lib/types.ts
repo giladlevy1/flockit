@@ -31,6 +31,8 @@ export interface Me {
   user: User;
   org: { id: string; name: string };
   scope: "organisation" | "team" | "self";
+  onboarded: boolean;
+  slack_linked: boolean;
 }
 
 export interface Session {
@@ -106,6 +108,7 @@ export interface Team {
 }
 
 export interface Token {
+  kind: "collector" | "mcp";
   id: string;
   name: string;
   prefix: string;
@@ -200,6 +203,65 @@ export interface Workflow {
   webhook_url: string | null;
 }
 
+export interface Service {
+  name: string;
+  image: string;
+  env: Record<string, string>;
+  port: number | null;
+  url_env: string | null;
+  url: string | null;
+  ready: string | null;
+  data_path: string | null;
+}
+
+export interface Environment {
+  id: string;
+  name: string;
+  description: string;
+  services: Service[];
+  variables: Record<string, string>;
+  secret_names: string[];
+  setup_script: string | null;
+  persistent: boolean;
+  created_at: string;
+  updated_at: string;
+  used_by: { id: string; name: string }[];
+}
+
+export interface EnvironmentPreset {
+  key: string;
+  title: string;
+  description: string;
+  environment: Omit<Environment, "id" | "created_at" | "updated_at" | "used_by">;
+}
+
+export interface AiDeveloperProfile {
+  developer: AiDeveloper;
+  expertise: { repos: { repo: string; tasks: number }[]; areas: { area: string; files: number }[] };
+  tasks: {
+    id: string;
+    title: string;
+    status: RunStatus;
+    repo: string | null;
+    task_ref: string | null;
+    session_id: string | null;
+    pr_url: string | null;
+    cost_usd: number | null;
+    created_at: string;
+    ended_at: string | null;
+  }[];
+  sessions: {
+    id: string;
+    title: string | null;
+    repo: string | null;
+    started_at: string;
+    ended_at: string | null;
+    turns: number;
+    files_touched: number;
+  }[];
+  workflows: { id: string; name: string; enabled: boolean; trigger: string; schedule_cron: string | null; repo: string }[];
+}
+
 export interface AiDeveloper {
   id: string;
   name: string;
@@ -214,6 +276,8 @@ export interface AiDeveloper {
   created_at: string;
   stats: { tasks: Partial<Record<RunStatus, number>>; tokens: number; cost_usd: number };
   current_task: { id: string; title: string; status: RunStatus } | null;
+  environment: { id: string; name: string; description: string; services: Service[]; persistent: boolean } | null;
+  default_repo: string | null;
 }
 
 export interface Runner {

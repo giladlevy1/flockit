@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     allowed_git_hosts: str = "github.com,gitlab.com,bitbucket.org"
     # Webhook deliveries accepted per workflow per hour (a leaked URL cannot run up a bill).
     webhook_rate_per_hour: int = 120
+    # Slack: the app's signing secret, so slash commands and events can be verified.
+    # Deployment config, never stored in the database. Empty disables the Slack endpoints.
+    slack_signing_secret: str = ""
     web_dist: Path = Path(__file__).resolve().parent / "static"
     collector_dist: Path = Path(__file__).resolve().parent / "collector_dist"
 

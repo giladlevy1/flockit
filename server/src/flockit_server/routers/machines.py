@@ -21,7 +21,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flockit_server import runs
 from flockit_server.db import get_db, sessionmaker
 from flockit_server.deps import CollectorIdentity, collector_identity
-from flockit_server.models import ApiToken, Machine, PermissionProfile, RunStatus, User, UserKind, WorkflowRun
+from flockit_server.models import (
+    ApiToken,
+    Environment,
+    Machine,
+    PermissionProfile,
+    RunStatus,
+    User,
+    UserKind,
+    WorkflowRun,
+)
+from flockit_server.routers import environments
 from flockit_server.security import hash_token, new_collector_token
 
 router = APIRouter(tags=["machines"])
@@ -81,6 +91,9 @@ def task_payload(run: WorkflowRun) -> dict:
         "interactive": run.interactive,
         "permission_profile": run.permission_profile.value,
         "task_ref": run.task_ref,
+        # Continuing an earlier session: the agent reopens it with `claude --resume` in the
+        # same checkout instead of starting a fresh one in a worktree.
+        "resume": (run.trigger_payload or {}).get("resume"),
     }
 
 
@@ -326,6 +339,13 @@ async def runner_poll(
                 "vendor": agent.agent_vendor or "claude-code",
                 "model": agent.agent_model,
             }
+            # The workbench this AI developer works in: services the runner starts beside the
+            # sandbox, so the agent can run the app and the tests against something real.
+            env = await s.get(Environment, agent.environment_id) if agent.environment_id else None
+            payload["environment"] = environments.spec(env)
+            # Where to post the result, for work that came from Slack. The runner posts it:
+            # the server makes no outbound calls.
+            payload["notify"] = task.notify or None
             payload["ingest_token"] = token
             await s.commit()
             return payload

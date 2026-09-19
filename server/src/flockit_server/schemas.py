@@ -197,6 +197,9 @@ class MeOut(BaseModel):
     user: UserOut
     org: OrgOut
     scope: Literal["organisation", "team", "self"]
+    # What the UI needs to decide between "here is your work" and "here is how to start".
+    onboarded: bool = False
+    slack_linked: bool = False
 
 
 # --- Tokens ------------------------------------------------------------------
@@ -204,6 +207,7 @@ class MeOut(BaseModel):
 
 class TokenOut(BaseModel):
     id: uuid.UUID
+    kind: str = "collector"
     name: str
     prefix: str
     created_at: datetime
@@ -215,6 +219,7 @@ class TokenCreated(TokenOut):
 
 
 class TokenIn(BaseModel):
+    kind: Literal["collector", "mcp"] = "collector"
     name: str = Field(default="My laptop", min_length=1, max_length=120)
 
 

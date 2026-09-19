@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, KeyRound, Laptop, ShieldCheck, Terminal, Trash2 } from "lucide-react";
+import { CheckCircle2, KeyRound, Laptop, MessageSquare, ShieldCheck, Sparkles, Terminal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -169,6 +169,10 @@ export function ConnectPage({ me }: { me: Me }) {
 
           <MyMachines />
 
+          <EditorAccess server={info.data?.server_url ?? ""} />
+
+          <SlackLink me={me} />
+
           <Card className="p-5">
             <div className="flex items-center gap-2 font-semibold">
               <Terminal className="size-4 text-muted" /> Your tokens
@@ -283,6 +287,126 @@ function MyMachines() {
         </ul>
       ) : (
         <p className="mt-2 text-sm text-muted">No machine has connected its agent yet.</p>
+      )}
+    </Card>
+  );
+}
+
+
+/**
+ * The org's memory, inside the editor. One token, one command, and a Claude Code session
+ * can search every session the person is allowed to see — and hand work to an AI developer
+ * without leaving the terminal.
+ */
+function EditorAccess({ server }: { server: string }) {
+  const qc = useQueryClient();
+  const [token, setToken] = useState<string | null>(null);
+  const tokens = useQuery({ queryKey: ["tokens"], queryFn: () => api<Token[]>("/api/tokens") });
+  const existing = (tokens.data ?? []).filter((t) => t.kind === "mcp");
+  const create = useMutation({
+    mutationFn: () => api<{ token: string }>("/api/tokens", { method: "POST", json: { kind: "mcp", name: "Editor (MCP)" } }),
+    onSuccess: (created) => {
+      setToken(created.token);
+      qc.invalidateQueries({ queryKey: ["tokens"] });
+    },
+  });
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-2 font-semibold">
+        <Sparkles className="size-4 text-accent" /> Your editor
+      </div>
+      <p className="mt-2 text-sm leading-relaxed text-ink-2">
+        Let Claude Code ask Flockit what the team already knows: <span className="italic">"has anyone hit this error
+        before?"</span>, <span className="italic">"what did Ada change last night?"</span> — and hand work over without
+        leaving the session.
+      </p>
+      {token ? (
+        <div className="mt-3 space-y-2">
+          <CodeBlock code={`flockit mcp install --token ${token}`} />
+          <p className="text-xs text-muted">
+            Copy it now — it is shown once. It can read what you can read, and cannot send sessions.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="primary" loading={create.isPending} onClick={() => create.mutate()}>
+            <KeyRound className="size-3.5" /> Create an editor token
+          </Button>
+          {existing.length > 0 && <span className="text-xs text-muted">{existing.length} active</span>}
+        </div>
+      )}
+      <p className="mt-3 text-xs leading-relaxed text-muted">
+        Works with anything that speaks MCP. {server ? `Points at ${server}.` : ""}
+      </p>
+    </Card>
+  );
+}
+
+/**
+ * Slack is linked from the side that already knows who you are: Flockit shows a code, you
+ * type it into Slack. No directory sync, and Flockit never calls Slack to look anyone up.
+ */
+function SlackLink({ me }: { me: Me }) {
+  const qc = useQueryClient();
+  const [code, setCode] = useState<string | null>(null);
+  const status = useQuery({ queryKey: ["slack-status"], queryFn: () => api<{ configured: boolean }>("/api/slack/status") });
+  const make = useMutation({
+    mutationFn: () => api<{ command: string; expires_in_minutes: number }>("/api/connect/slack-code", { method: "POST" }),
+    onSuccess: (r) => setCode(r.command),
+  });
+  const unlink = useMutation({
+    mutationFn: () => api("/api/connect/slack-code", { method: "DELETE" }),
+    onSuccess: () => {
+      setCode(null);
+      qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+
+  if (!status.data?.configured) {
+    return (
+      <Card className="p-5">
+        <div className="flex items-center gap-2 font-semibold">
+          <MessageSquare className="size-4 text-muted" /> Slack
+        </div>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          Not connected on this Flockit. An admin can set it up in about five minutes —{" "}
+          <span className="font-mono text-xs">docs/slack.md</span> — and then{" "}
+          <span className="font-mono text-xs">/flockit ada fix the flaky test</span> works from any channel.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-2 font-semibold">
+        <MessageSquare className="size-4 text-accent" /> Slack
+      </div>
+      {me.slack_linked ? (
+        <>
+          <p className="mt-2 flex items-center gap-2 text-sm text-ink-2">
+            <CheckCircle2 className="size-4 text-live" /> Linked. Try{" "}
+            <span className="font-mono text-xs">/flockit ada …</span>
+          </p>
+          <Button size="sm" variant="ghost" className="mt-2" loading={unlink.isPending} onClick={() => unlink.mutate()}>
+            Unlink
+          </Button>
+        </>
+      ) : code ? (
+        <div className="mt-3 space-y-2">
+          <CodeBlock code={code} />
+          <p className="text-xs text-muted">Paste that into any Slack channel. It expires in 15 minutes.</p>
+        </div>
+      ) : (
+        <>
+          <p className="mt-2 text-sm leading-relaxed text-ink-2">
+            Start work from where the conversation happens, and get the result back in the same thread.
+          </p>
+          <Button size="sm" variant="primary" className="mt-3" loading={make.isPending} onClick={() => make.mutate()}>
+            Link my Slack account
+          </Button>
+        </>
       )}
     </Card>
   );

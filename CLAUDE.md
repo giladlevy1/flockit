@@ -20,5 +20,9 @@ workflows dispatched to laptops (`flockit agent`) and runners (`flockit runner`)
 - Every session has a required human owner; AI developers are recorded as the actor. Never reassign ownership in ingest.
 - Every query returning sessions, transcripts, tasks or people goes through `scope.py` / `runs.visible_runs`.
 - Nothing starts on a person's laptop without their consent (accept, or opted-in auto-start). Webhook-triggered work never auto-starts on a laptop.
-- Anything user-controlled that reaches a shell is passed as an argument or read from a file, never interpolated.
+- Anything user-controlled that reaches a shell is passed as an argument or read from a file, never interpolated. Workbench
+  declarations are validated twice: in `routers/environments.py` and again in `collector/src/flockit/workbench.py`.
+- Token kinds do not overlap: `collector` writes sessions and cannot read; `mcp` reads within its owner's role and cannot write.
+- Slack and webhook text is untrusted input (`runs.UNTRUSTED_TRIGGERS`): it never auto-starts work on a person's machine, and
+  the prompt says to treat it as data.
 - Out of scope: code indexing/embeddings, IDE plugins, hosted SaaS.

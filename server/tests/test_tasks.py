@@ -263,6 +263,23 @@ async def test_workflows_are_scoped_to_what_a_lead_can_assign(team, make_user, a
     assert (await admin.delete(f"/api/workflows/{wf['id']}")).status_code == 204
 
 
+async def test_an_ai_developers_numbers_only_count_work_the_viewer_can_see(team, admin):
+    """The card says "3 tasks, $2.31" right above the list of those tasks. If the numbers
+    counted work the viewer is not allowed to open, the page would contradict itself — and
+    leak how much is happening elsewhere."""
+    ai = team["ai"]["id"]
+    for _ in range(3):
+        assert (await team["lead"].post("/api/tasks", json=task(ai))).status_code == 201
+    lead_view = next(a for a in (await team["lead"].get("/api/ai-developers")).json() if a["id"] == ai)
+    dev_view = next(a for a in (await team["dev"].get("/api/ai-developers")).json() if a["id"] == ai)
+    assert sum(lead_view["stats"]["tasks"].values()) == 3
+    assert sum(dev_view["stats"]["tasks"].values()) == 0  # the developer assigned none of them
+
+    profile = (await team["dev"].get(f"/api/ai-developers/{ai}")).json()
+    assert profile["tasks"] == [] and sum(profile["developer"]["stats"]["tasks"].values()) == 0
+    assert sum((await admin.get(f"/api/ai-developers/{ai}")).json()["developer"]["stats"]["tasks"].values()) == 3
+
+
 async def test_ai_developer_instructions_are_not_org_wide(team, admin):
     dev_view = (await team["dev"].get("/api/ai-developers")).json()[0]
     assert dev_view["instructions"] is None

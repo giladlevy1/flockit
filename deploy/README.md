@@ -18,7 +18,10 @@ Optional, with sensible defaults:
 ```bash
 FLOCKIT_ALLOWED_GIT_HOSTS=github.com,gitlab.com,bitbucket.org   # hosts tasks may name; runners send credentials only here
 FLOCKIT_WEBHOOK_RATE_PER_HOUR=120                               # deliveries accepted per workflow per hour
+FLOCKIT_SLACK_SIGNING_SECRET=                                   # set to switch on /flockit (see docs/slack.md)
 ```
+
+Without `FLOCKIT_SLACK_SIGNING_SECRET` the Slack endpoints return 404: the integration is off, not half on.
 
 `FLOCKIT_PUBLIC_URL` matters: it is baked into the install command on the Connect page. Without it,
 Flockit records the address the admin used during first-run setup (admins can change it on the Connect
@@ -99,6 +102,10 @@ export GH_TOKEN=...                 # clone private repos, push branches, open p
 - **`GH_TOKEN` never enters a container.** The runner clones the repository and pushes the branch itself; the sandbox only
   edits and commits locally. The token is sent only to the hosts in `FLOCKIT_RUNNER_GIT_HOSTS` (default `github.com`), so a
   task naming another host gets no credentials — set it if you self-host git: `export FLOCKIT_RUNNER_GIT_HOSTS=git.acme.com`.
+- **Workbenches** (the services AI developers develop against) are created by the runner on a private Docker network and
+  kept between tasks. `flockit workbench list` shows them; `flockit workbench rm <id>` removes one with its data.
+  Reserve disk accordingly — a Postgres workbench is as large as the data you seed into it. ([docs/workbenches.md](../docs/workbenches.md))
+- `SLACK_BOT_TOKEN` (optional) lets the runner post a finished task back to the Slack thread that asked for it.
 - Pools: give a runner `--pool` (set when you create it in the UI) and an AI developer the same pool to pin its work there.
 - Git hosts reached over SSH: `--clone-url 'git@{host}:{path}.git'`.
 - Keep it running with systemd, a container, or your process manager of choice.

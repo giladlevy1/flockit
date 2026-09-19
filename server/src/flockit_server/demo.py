@@ -17,6 +17,7 @@ from flockit_server.models import (
     AgentSession,
     AuditEvent,
     DispatchMode,
+    Environment,
     Machine,
     Organization,
     Origin,
@@ -276,11 +277,38 @@ async def _seed_work(session, org: Organization, rng: random.Random, now: dateti
     from flockit_server.routers.workflows import next_run
 
     maya, daniel, noa, priya = people["maya@acme.dev"], people["daniel@acme.dev"], people["noa@acme.dev"], people["priya@acme.dev"]
+    # Two workbenches: one ordinary service environment, one standing in for a customer's
+    # account — the reason an AI developer can reproduce their bug instead of a clean fixture.
+    app_env = Environment(
+        org_id=org.id, name="api-postgres",
+        description="Postgres 16 with the api-gateway schema and a week of anonymised traffic. Ada migrates and queries it while it works.",
+        services=[{"name": "db", "image": "postgres:16-alpine",
+                   "env": {"POSTGRES_PASSWORD": "flockit", "POSTGRES_USER": "app", "POSTGRES_DB": "app"},
+                   "port": 5432, "url_env": "DATABASE_URL", "url": "postgresql://app:flockit@db:5432/app",
+                   "ready": "pg_isready -U app", "data_path": "/var/lib/postgresql/data"}],
+        variables={}, secret_names=[], persistent=True,
+        setup_script='psql "$DATABASE_URL" -f db/schema.sql && psql "$DATABASE_URL" -f db/seed.sql')
+    acme_env = Environment(
+        org_id=org.id, name="customer-northwind",
+        description="Northwind's shape of data: enterprise plan, 40k invoices a month, the currency edge cases their tickets keep hitting.",
+        services=[{"name": "db", "image": "postgres:16-alpine",
+                   "env": {"POSTGRES_PASSWORD": "flockit", "POSTGRES_USER": "app", "POSTGRES_DB": "northwind"},
+                   "port": 5432, "url_env": "DATABASE_URL", "url": "postgresql://app:flockit@db:5432/northwind",
+                   "ready": "pg_isready -U app", "data_path": "/var/lib/postgresql/data"},
+                  {"name": "cache", "image": "redis:7-alpine", "env": {}, "port": 6379,
+                   "url_env": "REDIS_URL", "url": "redis://cache:6379/0", "ready": "redis-cli ping", "data_path": "/data"}],
+        variables={"CUSTOMER": "northwind", "PLAN": "enterprise"}, secret_names=[], persistent=True,
+        setup_script='psql "$DATABASE_URL" -f fixtures/northwind.sql')
+    session.add_all([app_env, acme_env])
+    await session.flush()
+
     ada = User(org_id=org.id, email="ada@agents.flockit.local", name="Ada", kind=UserKind.ai, role=Role.developer,
                dispatch_mode=DispatchMode.auto, agent_vendor="claude-code", agent_model="claude-opus-5", sponsor_id=maya.id,
-               instructions="You are Ada, an AI developer at Acme. Write the test first. Keep PRs small. Never touch CI config.")
+               instructions="You are Ada, an AI developer at Acme. Write the test first. Keep PRs small. Never touch CI config.",
+               environment_id=app_env.id, default_repo="github.com/acme/api-gateway")
     linus = User(org_id=org.id, email="linus@agents.flockit.local", name="Linus", kind=UserKind.ai, role=Role.developer,
-                 dispatch_mode=DispatchMode.auto, agent_vendor="codex", agent_model="gpt-5-codex", sponsor_id=daniel.id)
+                 dispatch_mode=DispatchMode.auto, agent_vendor="codex", agent_model="gpt-5-codex", sponsor_id=daniel.id,
+                 environment_id=acme_env.id, default_repo="github.com/acme/billing")
     ada.teams = [teams["Platform"], teams["Payments"]]
     linus.teams = [teams["Platform"]]
     session.add_all([ada, linus])

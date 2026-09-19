@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
+import subprocess
 import sys
 from typing import List, Optional
 
@@ -170,6 +172,72 @@ def _cmd_runner(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    """`flockit mcp`: expose the org's sessions to this machine's editor over MCP."""
+    from flockit import mcp
+
+    if args.action == "serve":
+        return mcp.serve()
+
+    cfg = config.load()
+    if cfg is None:
+        print("Flockit is not set up here. Run the install command from the Connect page first.", file=sys.stderr)
+        return 2
+    token = (args.token or os.environ.get("FLOCKIT_MCP_TOKEN") or "").strip()
+    if args.action == "install":
+        if token:
+            cfg.mcp_token = token
+            config.save(cfg)
+        if not cfg.mcp_token:
+            print("Create an editor token in Flockit → Connect, then run:", file=sys.stderr)
+            print("  flockit mcp install --token <token>", file=sys.stderr)
+            return 2
+        result = transport.request(
+            config.Config(server_url=cfg.server_url, token=cfg.mcp_token), "GET", "/api/auth/me", timeout=10
+        )
+        if not result.ok:
+            print("That editor token was rejected by %s." % cfg.server_url, file=sys.stderr)
+            return 1
+        who = (result.body or {}).get("user", {})
+        binary = os.path.realpath(sys.argv[0])
+        claude = shutil.which("claude")
+        if claude and not args.print_only:
+            done = subprocess.run(
+                [claude, "mcp", "add", "--scope", "user", "flockit", "--", binary, "mcp", "serve"],
+                capture_output=True, text=True,
+            )
+            if done.returncode == 0:
+                print("Registered with Claude Code as %s." % (who.get("name") or "you"))
+                print('Try: "search flockit for how we fixed the checkout race".')
+                return 0
+            print(done.stderr.strip()[:400] or "claude mcp add failed", file=sys.stderr)
+        print("Add this to your editor's MCP configuration:")
+        print(json.dumps({"mcpServers": {"flockit": {"command": binary, "args": ["mcp", "serve"]}}}, indent=2))
+        return 0
+
+    print("usage: flockit mcp [install|serve]", file=sys.stderr)
+    return 2
+
+
+def _cmd_workbench(args: argparse.Namespace) -> int:
+    """Workbenches are long-lived on purpose, so there is a way to look at and remove them."""
+    from flockit.workbench import Workbench
+
+    if args.action == "rm":
+        if not args.id:
+            print("usage: flockit workbench rm <environment-id>", file=sys.stderr)
+            return 2
+        removed = Workbench.remove(args.id)
+        print("Removed %d container(s) and their data for %s." % (removed, args.id))
+        return 0
+    rows = Workbench.list_all()
+    if not rows:
+        print("No workbenches on this machine.")
+    for r in rows:
+        print("%-40s %-28s %s" % (r["name"], r["image"], r["status"]))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="flockit", description="Flockit collector for Claude Code.")
     parser.add_argument("--version", action="version", version="flockit " + __version__)
@@ -204,6 +272,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--clone-url", default=os.environ.get("FLOCKIT_CLONE_URL_TEMPLATE", ""),
                    help='clone URL template, e.g. "git@{host}:{path}.git" (default: https://{repo}.git)')
     p.set_defaults(func=_cmd_runner)
+
+    p = sub.add_parser("mcp", help="let this machine's editor read Flockit (Model Context Protocol)")
+    p.add_argument("action", choices=["install", "serve"], nargs="?", default="install")
+    p.add_argument("--token", help="an editor (MCP) token from the Connect page, or FLOCKIT_MCP_TOKEN")
+    p.add_argument("--print-only", action="store_true", help="print the configuration instead of registering it")
+    p.set_defaults(func=_cmd_mcp)
+
+    p = sub.add_parser("workbench", help="AI-developer workbenches running on this machine")
+    p.add_argument("action", choices=["list", "rm"], nargs="?", default="list")
+    p.add_argument("id", nargs="?")
+    p.set_defaults(func=_cmd_workbench)
 
     p = sub.add_parser("uninstall", help="remove hooks and local config")
     p.set_defaults(func=_cmd_uninstall)

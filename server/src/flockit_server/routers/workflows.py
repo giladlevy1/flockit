@@ -323,7 +323,7 @@ async def start_workflow(
     # A webhook body is written by whoever can file a ticket. It must never start an agent
     # on a person's machine unattended: webhook work for people always waits for them to accept.
     # (AI developers run in disposable sandboxes on runners, so they still start on their own.)
-    mode = RunMode.ask if trigger == "webhook" and assignee.kind == UserKind.human else wf.mode
+    mode = runs.untrusted_mode(trigger, assignee, wf.mode)
     run = await runs.create_run(
         db,
         org_id=wf.org_id,

@@ -13,19 +13,22 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flockit_server import runs
+from flockit_server import runs, scope
 from flockit_server.db import get_db
 from flockit_server.deps import current_user, require_admin
 from flockit_server.models import (
     AgentSession,
     AuditEvent,
     DispatchMode,
+    Environment,
     Machine,
     Role,
     RunStatus,
+    SessionFile,
     Team,
     User,
     UserKind,
+    Workflow,
     WorkflowRun,
 )
 from flockit_server.security import hash_token
@@ -50,6 +53,8 @@ class AiDevIn(BaseModel):
     runner_pool: Optional[str] = Field(default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9_\-]*$")
     sponsor_id: Optional[uuid.UUID] = None
     instructions: Optional[str] = Field(default=None, max_length=20_000)
+    environment_id: Optional[uuid.UUID] = None
+    default_repo: Optional[str] = Field(default=None, max_length=300)
     team_ids: List[uuid.UUID] = []
     is_active: bool = True
 
@@ -63,6 +68,8 @@ class AiDevOut(BaseModel):
     runner_pool: Optional[str]
     sponsor: Optional[dict]
     instructions: Optional[str]
+    environment: Optional[dict]
+    default_repo: Optional[str]
     teams: List[dict]
     is_active: bool
     created_at: datetime
@@ -71,12 +78,15 @@ class AiDevOut(BaseModel):
 
 
 async def _ai_out(db: AsyncSession, u: User, viewer: Optional[User] = None) -> AiDevOut:
+    # Counts and spend cover the same work the viewer can open. Showing "12 tasks" beside a
+    # list they are not allowed to see would be both confusing and a small leak.
+    mine = [WorkflowRun.assignee_id == u.id]
+    if viewer is not None:
+        mine.append(runs.visible_runs(viewer))
     counts = {
         s.value: n
         for s, n in (
-            await db.execute(
-                select(WorkflowRun.status, func.count()).where(WorkflowRun.assignee_id == u.id).group_by(WorkflowRun.status)
-            )
+            await db.execute(select(WorkflowRun.status, func.count()).where(*mine).group_by(WorkflowRun.status))
         ).all()
     }
     tokens, cost = (
@@ -87,14 +97,10 @@ async def _ai_out(db: AsyncSession, u: User, viewer: Optional[User] = None) -> A
             )
             .select_from(WorkflowRun)
             .outerjoin(AgentSession, AgentSession.id == WorkflowRun.session_id)
-            .where(WorkflowRun.assignee_id == u.id)
+            .where(*mine)
         )
     ).one()
-    current_q = select(WorkflowRun).where(
-        WorkflowRun.assignee_id == u.id, WorkflowRun.status.in_([RunStatus.starting, RunStatus.running])
-    )
-    if viewer is not None:
-        current_q = current_q.where(runs.visible_runs(viewer))  # never show a task the viewer cannot see
+    current_q = select(WorkflowRun).where(*mine, WorkflowRun.status.in_([RunStatus.starting, RunStatus.running]))
     current = (
         await db.execute(
             current_q
@@ -103,6 +109,7 @@ async def _ai_out(db: AsyncSession, u: User, viewer: Optional[User] = None) -> A
         )
     ).scalar_one_or_none()
     sponsor = await db.get(User, u.sponsor_id) if u.sponsor_id else None
+    env = await db.get(Environment, u.environment_id) if u.environment_id else None
     return AiDevOut(
         id=u.id,
         name=u.name,
@@ -113,6 +120,16 @@ async def _ai_out(db: AsyncSession, u: User, viewer: Optional[User] = None) -> A
         sponsor={"id": sponsor.id, "name": sponsor.name} if sponsor else None,
         # Standing instructions are for the people who run the AI developer.
         instructions=u.instructions if viewer is None or viewer.role == Role.admin or viewer.id == u.sponsor_id else None,
+        environment={
+            "id": env.id,
+            "name": env.name,
+            "description": env.description,
+            "services": list(env.services or []),
+            "persistent": env.persistent,
+        }
+        if env
+        else None,
+        default_repo=u.default_repo,
         teams=[{"id": t.id, "name": t.name} for t in sorted(u.teams, key=lambda t: t.name)],
         is_active=u.is_active,
         created_at=u.created_at,
@@ -130,9 +147,20 @@ async def _teams(db: AsyncSession, org_id: uuid.UUID, ids: List[uuid.UUID]) -> L
     return list(found)
 
 
-def _apply(u: User, body: AiDevIn) -> None:
+async def _apply(db: AsyncSession, u: User, body: AiDevIn) -> None:
     if body.agent_vendor not in VENDORS:
         raise HTTPException(422, "agent_vendor must be claude-code or codex")
+    if body.environment_id is not None:
+        env = (
+            await db.execute(
+                select(Environment).where(Environment.id == body.environment_id, Environment.org_id == u.org_id)
+            )
+        ).scalar_one_or_none()
+        if env is None:
+            raise HTTPException(400, "Unknown workbench")
+    u.environment_id = body.environment_id
+    # Same rules as a task: an AI developer only works in repositories Flockit allows.
+    u.default_repo = runs.validate_repo(body.default_repo, for_ai=True)
     u.name = body.name.strip()
     u.agent_vendor = body.agent_vendor
     u.agent_model = (body.agent_model or "").strip() or None
@@ -163,7 +191,7 @@ async def create_ai_dev(body: AiDevIn, admin: User = Depends(require_admin), db:
         dispatch_mode=DispatchMode.auto,
         password_hash=None,
     )
-    _apply(u, body)
+    await _apply(db, u, body)
     sponsor = await db.get(User, body.sponsor_id or admin.id)
     if sponsor is None or sponsor.org_id != admin.org_id or sponsor.kind != UserKind.human:
         raise HTTPException(400, "The sponsor must be a person in this organisation")
@@ -186,7 +214,7 @@ async def update_ai_dev(
     ).scalar_one_or_none()
     if u is None:
         raise HTTPException(404, "AI developer not found")
-    _apply(u, body)
+    await _apply(db, u, body)
     if body.sponsor_id:
         sponsor = await db.get(User, body.sponsor_id)
         if sponsor is None or sponsor.org_id != admin.org_id or sponsor.kind != UserKind.human:
@@ -341,4 +369,115 @@ async def audit_log(
             }
             for e, name in rows
         ]
+    }
+
+
+# --- One AI developer: what it knows, where it has worked -------------------------
+
+
+@router.get("/api/ai-developers/{user_id}")
+async def ai_developer_profile(
+    user_id: uuid.UUID, viewer: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Everything about one AI developer on one page: its workbench, the work it has done,
+    and the areas it has touched — so a lead can tell whether this is the right one for a job.
+
+    Every list is filtered by what the viewer may see: this is a view of the same data the
+    session and task APIs return, not a second way in.
+    """
+    u = (
+        await db.execute(select(User).where(User.id == user_id, User.org_id == viewer.org_id, User.kind == UserKind.ai))
+    ).scalar_one_or_none()
+    if u is None:
+        raise HTTPException(404, "AI developer not found")
+
+    tasks = (
+        await db.execute(
+            select(WorkflowRun)
+            .where(WorkflowRun.assignee_id == u.id, runs.visible_runs(viewer))
+            .order_by(WorkflowRun.created_at.desc())
+            .limit(12)
+        )
+    ).scalars().unique().all()
+    sessions = (
+        await db.execute(
+            select(AgentSession)
+            .where(AgentSession.actor_id == u.id, scope.visible_sessions(viewer))
+            .order_by(AgentSession.started_at.desc())
+            .limit(12)
+        )
+    ).scalars().all()
+    repos = (
+        await db.execute(
+            select(WorkflowRun.repo, func.count())
+            .where(WorkflowRun.assignee_id == u.id, WorkflowRun.repo.is_not(None), runs.visible_runs(viewer))
+            .group_by(WorkflowRun.repo)
+            .order_by(func.count().desc())
+            .limit(6)
+        )
+    ).all()
+    # The directories it has actually edited: a better description of what it knows than a job title.
+    areas = (
+        await db.execute(
+            select(
+                func.split_part(SessionFile.path, "/", 1).label("area"),
+                func.count(),
+            )
+            .select_from(SessionFile)
+            .join(AgentSession, AgentSession.id == SessionFile.session_id)
+            .where(AgentSession.actor_id == u.id, scope.visible_sessions(viewer))
+            .group_by("area")
+            .order_by(func.count().desc())
+            .limit(8)
+        )
+    ).all()
+    flows = (
+        await db.execute(
+            select(Workflow).where(Workflow.assignee_id == u.id).order_by(Workflow.name)
+        )
+    ).scalars().unique().all()
+    return {
+        "developer": (await _ai_out(db, u, viewer)).model_dump(),
+        "expertise": {
+            "repos": [{"repo": r, "tasks": n} for r, n in repos],
+            "areas": [{"area": a, "files": n} for a, n in areas if a],
+        },
+        "tasks": [
+            {
+                "id": t.id,
+                "title": t.title,
+                "status": t.status.value,
+                "repo": t.repo,
+                "task_ref": t.task_ref,
+                "session_id": t.session_id,
+                "pr_url": t.pr_url,
+                "cost_usd": t.cost_usd,
+                "created_at": t.created_at,
+                "ended_at": t.ended_at,
+            }
+            for t in tasks
+        ],
+        "sessions": [
+            {
+                "id": s.id,
+                "title": s.title,
+                "repo": s.repo,
+                "started_at": s.started_at,
+                "ended_at": s.ended_at,
+                "turns": s.turns,
+                "files_touched": s.files_touched,
+            }
+            for s in sessions
+        ],
+        "workflows": [
+            {
+                "id": w.id,
+                "name": w.name,
+                "enabled": w.enabled,
+                "trigger": "schedule" if w.schedule_cron else ("webhook" if w.webhook_enabled else "manual"),
+                "schedule_cron": w.schedule_cron,
+                "repo": w.repo,
+            }
+            for w in flows
+        ],
     }

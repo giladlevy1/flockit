@@ -7,7 +7,8 @@ jobs.
 |---|---|---|
 | `flockit hook` | every developer machine (registered as a Claude Code hook) | reports sessions and their redacted transcripts to **your** Flockit server |
 | `flockit agent` | every developer machine (launchd / systemd user service) | notifies you of tasks; opens Claude Code in a fresh git worktree when you accept one; runs auto-start tasks headless |
-| `flockit runner` | a Docker host in your network | runs AI-developer tasks in sandboxes (Claude Code or Codex), streams the session, pushes the branch, opens a PR |
+| `flockit runner` | a Docker host in your network | runs AI-developer tasks in sandboxes (Claude Code or Codex), brings up their workbenches, streams the session, pushes the branch, opens a PR |
+| `flockit mcp` | every developer machine, opt-in | serves the organisation's sessions to your editor over MCP, scoped to what you may see |
 
 ```bash
 flockit install --server http://flockit.internal:8080 --token flk_...   # hooks + agent
@@ -15,6 +16,8 @@ flockit status
 flockit tasks                      # what is waiting for you
 flockit tasks accept <id>          # or --headless
 flockit agent stop | start | status
+flockit mcp install --token flk_...  # let Claude Code search Flockit (docs/mcp.md)
+flockit workbench list             # AI-developer workbenches on this machine
 flockit runner build-image
 flockit runner --server http://flockit.internal:8080 --token frn_... [--backend docker|local] [--capacity 2]
 flockit uninstall

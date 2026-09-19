@@ -16,11 +16,13 @@ from flockit_server.routers import (
     agents,
     auth,
     connect,
+    environments,
     ingest,
     machines,
     people,
     search,
     sessions,
+    slack,
     tasks,
     tokens,
     workflows,
@@ -82,7 +84,8 @@ def create_app(run_sweeper: bool = True) -> FastAPI:
     )
     app.state.run_sweeper = run_sweeper
 
-    for module in (auth, ingest, search, sessions, people, tokens, connect, tasks, workflows, machines, agents):
+    for module in (auth, ingest, search, sessions, people, tokens, connect, tasks, workflows, machines, agents,
+                   environments, slack):
         app.include_router(module.router)
 
     @app.get("/api/health", tags=["meta"])

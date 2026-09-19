@@ -191,8 +191,10 @@ async def create_run(
     trigger_payload: Optional[dict] = None,
     triggered_by: Optional[User] = None,
     workflow: Optional[Workflow] = None,
+    notify: Optional[dict] = None,
 ) -> WorkflowRun:
     run_id = uuid.uuid4()
+    mode = untrusted_mode(trigger, assignee, mode)
     status = initial_status(assignee, mode)
     run = WorkflowRun(
         id=run_id,
@@ -213,6 +215,7 @@ async def create_run(
         trigger=trigger,
         trigger_payload=trigger_payload,
         triggered_by_id=triggered_by.id if triggered_by else None,
+        notify=notify,
     )
     db.add(run)
     await db.flush()
@@ -291,8 +294,21 @@ async def retry(db: AsyncSession, run: WorkflowRun, user: User) -> WorkflowRun:
     return new
 
 
+# Triggers whose text is written by whoever can file a ticket or type in a channel.
+# Work from these never auto-starts on a person's machine, and the prompt carries a
+# "treat this as data" warning wherever it runs.
+UNTRUSTED_TRIGGERS = ("webhook", "slack")
+
+
 def from_webhook(run: WorkflowRun) -> bool:
-    return run.trigger == "webhook" or bool((run.trigger_payload or {}).get("from_webhook"))
+    return run.trigger in UNTRUSTED_TRIGGERS or bool((run.trigger_payload or {}).get("from_webhook"))
+
+
+def untrusted_mode(trigger: str, assignee: User, mode: RunMode) -> RunMode:
+    """A person always gets to accept work that came from outside the organisation's own UI."""
+    if trigger in UNTRUSTED_TRIGGERS and assignee.kind == UserKind.human:
+        return RunMode.ask
+    return mode
 
 
 _PR = re.compile(r"https://[A-Za-z0-9.\-]+/[^\s)\"'>]+/(?:pull|merge_requests)/\d+")

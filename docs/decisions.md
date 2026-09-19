@@ -45,6 +45,19 @@ every past session in an org is also the right place to hand out the next piece 
 | 26 | **Git credentials never enter a sandbox.** The runner clones and publishes; the container edits and commits locally. | An agent running with full permissions is inside the blast radius of any prompt injection in the repo or the ticket. It should not hold a push token. | If per-task, per-repo deploy keys become practical. |
 | 27 | **Git hosts are an allowlist** (`FLOCKIT_ALLOWED_GIT_HOSTS`), enforced when a task is created and again before the runner sends credentials. | Otherwise a workflow could point a runner at an attacker's server and hand it the org's git token. | — |
 
+## 0.3 — the work people actually do
+
+Making it *simple* was the brief: a developer should open Flockit and see their work, not a dashboard. Making it *useful*
+followed from one observation — an agent that cannot run what it wrote is guessing, and a human pays for the guess in review.
+
+| # | Decision | Why | Revisit when |
+|---|---|---|---|
+| 28 | **Each AI developer gets a persistent workbench**: services on a private network, kept between tasks, with a seed script that runs once. The sandbox is thrown away; the workbench is not. | Throwaway compute, persistent context. An agent that can migrate, query and test against real-shaped data checks its own work before a person does. | If per-task database branching (Neon-style) becomes cheap enough to beat a long-lived volume. |
+| 29 | **The seed script is marked done only when it exits zero**, tracked by its own marker rather than inferred from a data volume. | A half-seeded database is worse than an empty one, and a workbench with no persistent service must behave like every other one. | — |
+| 30 | **The archive is exposed to editors over MCP**, with a token kind that can read but not write — and the collector token still cannot read. | The capture is only worth its cost if the next session can use it. Separating the kinds keeps a token sitting on every laptop from becoming a key to the organisation's transcripts. | If SSO lets the editor authenticate as the person directly. |
+| 31 | **Slack is inbound-only on the server**; results are posted by the runner with its own bot token. | Keeps "the server makes no outbound calls" literally true, which is the claim every security review starts with. | If an org wants notifications without running a runner. |
+| 32 | **Home is your work, not a dashboard.** Numbers moved behind a tab that only leads and admins see; tasks, workflows, search and people moved out of the top bar. | A developer opening the page every morning wants their sessions and anything waiting on them. Five nav items taught them the product had five pages of chores. | If usage shows people hunting for what moved. |
+
 ## Open questions for the next milestone
 
 - Which real repos and which five teams run the first trial?

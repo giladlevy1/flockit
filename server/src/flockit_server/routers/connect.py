@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+import secrets
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -16,8 +18,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flockit_server.db import get_db
-from flockit_server.deps import require_admin
+from flockit_server.deps import current_user, require_admin
 from flockit_server.models import Organization, User
+from flockit_server.runs import now
+from flockit_server.security import hash_token
 from flockit_server.settings import get_settings
 
 router = APIRouter(tags=["connect"])
@@ -186,3 +190,30 @@ async def set_public_url(
     org.public_url = url
     await db.commit()
     return {"server_url": url}
+
+
+# --- Slack ---------------------------------------------------------------------
+# Linking is done by the person, from the side that already knows who they are: Flockit
+# shows a short code, they type it into Slack. No lookup call to Slack, no directory sync.
+
+SLACK_CODE_TTL_MINUTES = 15
+
+
+@router.post("/api/connect/slack-code")
+async def slack_link_code(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> dict:
+    if not get_settings().slack_signing_secret:
+        raise HTTPException(409, "This Flockit is not connected to Slack yet (see docs/slack.md)")
+    # Unambiguous characters only: this gets read off a screen and typed into a chat box.
+    code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(8))
+    user.slack_link_code_hash = hash_token(code)
+    user.slack_link_expires_at = now() + timedelta(minutes=SLACK_CODE_TTL_MINUTES)
+    await db.commit()
+    return {"code": code, "expires_in_minutes": SLACK_CODE_TTL_MINUTES, "command": f"/flockit link {code}"}
+
+
+@router.delete("/api/connect/slack-code", status_code=204)
+async def unlink_slack(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> None:
+    user.slack_user_id = None
+    user.slack_link_code_hash = None
+    user.slack_link_expires_at = None
+    await db.commit()

@@ -31,7 +31,39 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+async def _bearer_user(request: Request, db: AsyncSession) -> Optional[User]:
+    """An MCP token acts as its owner, with exactly their role scope. Collector and
+    per-task tokens are refused here: writing sessions is not permission to read them."""
+    scheme, _, raw = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not raw.strip():
+        return None
+    found = (
+        await db.execute(
+            select(ApiToken, User)
+            .join(User, User.id == ApiToken.user_id)
+            .where(
+                ApiToken.token_hash == hash_token(raw.strip()),
+                ApiToken.kind == "mcp",
+                ApiToken.run_id.is_(None),
+                ApiToken.revoked_at.is_(None),
+                or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > _now()),
+            )
+        )
+    ).first()
+    if found is None or not found[1].is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or revoked token")
+    api_token, user = found
+    now = _now()
+    if api_token.last_used_at is None or now - api_token.last_used_at > timedelta(minutes=1):
+        await db.execute(update(ApiToken).where(ApiToken.id == api_token.id).values(last_used_at=now))
+        await db.commit()
+    return user
+
+
 async def current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    bearer = await _bearer_user(request, db)
+    if bearer is not None:
+        return bearer
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in")
@@ -81,6 +113,9 @@ async def collector_identity(request: Request, db: AsyncSession = Depends(get_db
     if found is None or not found[1].is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or revoked collector token")
     api_token, user = found
+    if api_token.kind != "collector":
+        # An editor token may read; it may not write sessions as this person.
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This token cannot send sessions")
     if api_token.run_id is not None:
         from flockit_server.models import RunStatus, WorkflowRun
 

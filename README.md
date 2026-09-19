@@ -6,8 +6,8 @@
 
 <p align="center">
   <b>The self-hosted control plane for an engineering org of people and AI developers.</b><br>
-  See every coding session, human and AI, in one place. Hand work to a teammate's Claude Code or to an AI developer.<br>
-  Automate it with workflows. Keep everything your agents learned, searchable, on your own server.
+  Every coding session — yours, your team's, your agents' — kept, searchable, and usable by the next one.<br>
+  Hand work to a teammate's Claude Code or to an AI developer that tests its own change against a real database.
 </p>
 
 <p align="center">
@@ -19,6 +19,20 @@
 
 ![The Flockit R&D view: live sessions by people and AI developers, agent time by repo, model mix](docs/images/rnd-view.png)
 
+## Start here
+
+| | |
+|---|---|
+| **One developer** | Your own sessions become searchable, your editor can query them, and an AI developer works on your machine. Twenty minutes. → **[docs/solo.md](docs/solo.md)** |
+| **A team** | Server, roles, runners, workbenches, workflows, Slack. About an hour for the first team. → **[docs/team.md](docs/team.md)** |
+
+```bash
+git clone https://github.com/giladlevy1/flockit.git && cd flockit && docker compose up -d
+```
+
+Open <http://localhost:8080>. Or look around a fully populated demo first:
+`docker compose run --rm flockit flockit-server seed-demo` (sign in as `maya@acme.dev` / `flockit-demo`).
+
 ## What it does
 
 | | |
@@ -27,6 +41,9 @@
 | **Delegate** | Turn any piece of work into a **task**. Give it to a teammate: it appears in their inbox, and when they accept, **Claude Code opens on their laptop** in a fresh git worktree, already working on it. Or give it to an **AI developer**, which runs Claude Code or Codex in a Docker sandbox on your runner, pushes a branch and opens a pull request. |
 | **Automate** | **Workflows** create tasks by hand, on a **schedule** (cron with time zones), or from a **webhook** any system can call: GitHub, Jira, Linear, Sentry, Zendesk, PagerDuty. |
 | **Remember** | The full conversation of every session, redacted on the laptop: prompts, replies, commands, files edited, token usage. **Search** it across the org ("how did we fix the checkout race?"), open any session as a timeline, and **hand off** unfinished work to a person or an AI developer with the context attached. |
+| **Trust** | Each AI developer gets a **workbench**: a Postgres with your schema, a cache, a stand-in for one customer's account — kept between tasks like a person's own machine. It migrates, seeds, queries and **runs your tests** before it opens a pull request, so you review a change that has been run. [→](docs/workbenches.md) |
+| **Reuse** | That archive is available **inside Claude Code** over MCP. Ask "has anyone hit this before?" and get your organisation's actual answer, then hand the work to an AI developer without leaving the session. [→](docs/mcp.md) |
+| **Start anywhere** | `/flockit ada the checkout webhook retries forever on 429` from the channel where the complaint arrived; the pull request comes back in the same thread. [→](docs/slack.md) |
 
 <table>
 <tr>
@@ -64,6 +81,17 @@ does the clone and the push, and hands its git token only to hosts on an allowli
 Bitbucket by default). A task that names some other host is refused when it is created, so no one can point a runner at a server
 that collects tokens.
 
+**If my editor can search everyone's sessions, who can read what?**
+Exactly what the web UI would show that person: developers their own, leads their teams', admins the organisation — enforced by
+the API, not by the client. Editor access is a **separate, opt-in token** each person creates for themselves: a collector token
+(which sits in a config file on every laptop) cannot read anything, and an editor token cannot write sessions. Revoke either on
+the Connect page. ([docs/mcp.md](docs/mcp.md))
+
+**Does Slack mean the server talks to the internet?**
+No. Slack POSTs in, and the slash command is answered in the reply to that same request. The result is posted back by the
+**runner** that did the work, with its own bot token. Requests are rejected unless Slack's signature checks out and the
+timestamp is fresh, and Slack-triggered work never auto-starts on a person's machine. ([docs/slack.md](docs/slack.md))
+
 **Can Flockit run code on my laptop?**
 Only if you let it. A task sent to you waits in your inbox until you accept it (then Claude Code opens in a terminal, in a new
 git worktree, so your own checkout is never touched). You can allow **auto-start** for workflows you trust; auto-started tasks run
@@ -78,37 +106,32 @@ Claude Code or **Codex**. The ingest API is vendor-neutral.
 One compose file. `git clone` to the first captured session took **35 seconds** in our test (base images already pulled). Each
 developer installs the collector and agent with one command, served by your Flockit server, with no internet access needed.
 
-## Quickstart
+## Setting it up
 
-```bash
-git clone https://github.com/giladlevy1/flockit.git
-cd flockit
-docker compose up -d
-```
+Start the server (`docker compose up -d`), open it, create your organisation. Then, in the order that pays off fastest:
 
-Open **http://localhost:8080** and create your organisation. Then:
-
-1. **Connect your machine.** On **Connect**, copy the one-line install command. It installs the collector (Claude Code hooks)
-   and the agent (so tasks can start on your machine):
+1. **Connect your machine.** **Connect** shows a one-line command. It installs the collector (Claude Code hooks) and the
+   agent, so your sessions are captured and work can be sent to you:
    ```bash
    curl -fsSL http://your-flockit-host:8080/install.sh | sh -s -- flk_your_token
    ```
-2. **Invite your team** on **People**, and group them into teams. Leads see their teams; admins see everyone.
-3. **Add an AI developer** on **AI developers**, then **add a runner** on any machine with Docker:
+2. **Give your editor the memory.** Create an **editor token** on the same page:
+   ```bash
+   ~/.flockit/venv/bin/flockit mcp install --token flk_your_editor_token
+   ```
+   Now Claude Code can search every session you are allowed to see. ([docs/mcp.md](docs/mcp.md))
+3. **Start a runner** on any machine with Docker — the one component with outbound access:
    ```bash
    curl -fsSL http://your-flockit-host:8080/install.sh | sh -s -- --runner-only
    ~/.flockit/venv/bin/flockit runner build-image
    ANTHROPIC_API_KEY=... GH_TOKEN=... ~/.flockit/venv/bin/flockit runner --server http://your-flockit-host:8080 --token frn_...
    ```
-4. **Create a workflow** (for example: GitHub issues labelled `bug` go to your AI developer) and paste its webhook URL into
-   GitHub.
+4. **Hire an AI developer** and give it a **workbench** (a Postgres with your schema is one click). Assign it a real
+   ticket and watch it work. ([docs/workbenches.md](docs/workbenches.md))
+5. **Automate it**: a workflow on a schedule, a webhook from GitHub or Zendesk, or `/flockit` from Slack
+   ([docs/slack.md](docs/slack.md)).
 
-> **Want to look around first?** Load a demo organisation into a fresh deployment:
-> `docker compose run --rm flockit flockit-server seed-demo`. Sign in as `maya@acme.dev` (admin), `daniel@acme.dev` (lead)
-> or `noa@acme.dev` (developer); the password is `flockit-demo`. It includes AI developers, workflows, tasks in every state,
-> and searchable transcripts.
-
-For production (HTTPS, backups, upgrades, runner hosts) see the [deployment guide](deploy/README.md).
+Full walkthroughs: **[one developer](docs/solo.md)** · **[a team](docs/team.md)** · [production deployment](deploy/README.md).
 
 ## How it works
 
@@ -117,26 +140,29 @@ flowchart LR
     subgraph laptop["Developer laptop"]
         CC["Claude Code"] -- "hooks" --> C["flockit hook<br/><i>redaction</i>"]
         A["flockit agent"] -- "opens / runs" --> CC
+        M["flockit mcp"] -- "searches" --> CC
     end
     subgraph net["Your network"]
         API["Flockit server<br/>FastAPI + Postgres"]
         UI["Web UI"] --> API
         subgraph runner["Runner (Docker host)"]
             R["flockit runner"] --> SB["sandbox<br/>Claude Code / Codex"]
+            SB --- WB["workbench<br/><i>Postgres, cache — kept</i>"]
         end
     end
     C -- "sessions + transcripts" --> API
     A -- "long-poll for tasks" --> API
+    M -- "read, within your role" --> API
     R -- "long-poll, stream sessions" --> API
-    SB -. "model API, git push, PR" .-> EXT["Anthropic / OpenAI<br/>GitHub"]
-    WH["GitHub, Jira, Sentry…"] -- "webhooks" --> API
+    R -. "model API, git push, PR, Slack reply" .-> EXT["Anthropic / OpenAI<br/>GitHub · Slack"]
+    WH["GitHub, Jira, Sentry, Slack…"] -- "webhooks, /flockit" --> API
 ```
 
 | Component | What it is |
 |---|---|
 | **Server** (`server/`) | FastAPI + Postgres, one container. Ingest, role scoping, tasks, workflows (scheduler and webhooks), machine APIs, full-text search, audit log. Serves the UI and the CLI package. |
 | **Web UI** (`web/`) | React. Sessions, tasks, workflows, AI developers, search, people, connect. Works on a phone. |
-| **CLI** (`collector/`) | One zero-dependency Python package, `flockit`: the Claude Code **hook** (capture and redaction), the **agent** (launchd/systemd user service that starts tasks on a laptop), and the **runner** (Docker sandboxes for AI developers). |
+| **CLI** (`collector/`) | One zero-dependency Python package, `flockit`: the Claude Code **hook** (capture and redaction), the **agent** (launchd/systemd user service that starts tasks on a laptop), the **runner** (Docker sandboxes and workbenches for AI developers), and **`flockit mcp`** (the org's history inside your editor). |
 
 Task lifecycle: `offered → queued → starting → running → succeeded | failed` (plus `declined`, `cancelled`). A person's task is
 offered to them; an AI developer's task is queued for a runner. Every task gets its own branch (`flockit/<id>-<title>`), its own
@@ -157,7 +183,9 @@ AI developer is recorded as the actor, so accountability never disappears into a
 
 - **No hosted SaaS, no telemetry.** Self-hosted is the only mode.
 - **No code indexing or embeddings.** Flockit remembers what people and agents did and decided, not a copy of your repositories.
-- **No IDE plugin.** It works with the agents your developers already use.
+- **No IDE plugin.** It works with the agents your developers already use — over MCP, which they already speak.
+- **No outbound calls from the server.** Integrations are inbound (webhooks, Slack commands); anything that has to reach
+  out, like posting a Slack reply, is done by a runner, which already has network access and holds the credentials.
 
 ## Roadmap
 
@@ -165,10 +193,11 @@ AI developer is recorded as the actor, so accountability never disappears into a
 |---|---|
 | ✅ **0.1** | The R&D view: every session, human and AI, in one place |
 | ✅ **0.2** | Tasks, workflows (manual, cron, webhook), laptop agent, AI developers and runners, full transcripts, org-wide search, hand-off, audit log |
+| ✅ **0.3** | Workbenches (a persistent database per AI developer), the archive in your editor over MCP, Slack commands, continue-a-session, a home page that is your work rather than a dashboard |
 | **Next** | Benchmark harness: tokens and time with and without Flockit context, reproducible on your own repo |
-| | Verified memory served over MCP: facts re-derived by the command that produced them, withheld when stale |
+| | Verified memory: facts re-derived by the command that produced them, withheld when stale, served through the same MCP tools |
 | | Decision capture: a review rejection becomes a rule the next agent follows |
-| | SSO/SCIM, outbound notifications (Slack) as an opt-in integration |
+| | Review and test stages an AI developer runs before it asks for a human; SSO/SCIM |
 
 ## Development
 

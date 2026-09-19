@@ -103,10 +103,18 @@ class Agent:
             claude = claude_binary(self.cfg)
             if not claude:
                 raise workspace.WorkspaceError("Claude Code is not installed on this machine (claude not found)")
-            workdir = workspace.prepare(task.get("repo"), task.get("base_branch"), task["branch"], task_id)
+            resume = task.get("resume")
+            if resume:
+                # Continuing an earlier session: reopen it where it happened, not in a new
+                # worktree — its context is about that checkout.
+                workdir = workspace.existing_repo(task.get("repo")) or workspace.prepare(
+                    task.get("repo"), task.get("base_branch"), task["branch"], task_id
+                )
+            else:
+                workdir = workspace.prepare(task.get("repo"), task.get("base_branch"), task["branch"], task_id)
             log.write(f"task {task_id[:8]} in {workdir}")
-            if task.get("interactive"):
-                script = launch.start_script(task_id, task["title"], workdir, task["prompt"], claude)
+            if task.get("interactive") or resume:
+                script = launch.start_script(task_id, task["title"], workdir, task["prompt"], claude, resume=resume)
                 if launch.open_terminal(script):
                     self.report(task_id, "running")
                     launch.notify("Flockit task started", task["title"])

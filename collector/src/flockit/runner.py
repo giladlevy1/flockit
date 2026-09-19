@@ -38,9 +38,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from flockit import __version__, config, log, transport
+from flockit import __version__, config, log, notify, transport
 from flockit.conversation import Batch, Converter
 from flockit.redact import redact_session, scrub
+from flockit.workbench import Workbench
 
 DEFAULT_IMAGE = "flockit-sandbox:latest"
 TASK_TIMEOUT = 60 * 60
@@ -63,6 +64,11 @@ ENV HOME=/home/node CI=1
 AGENT_SCRIPT = r"""#!/bin/bash
 set -uo pipefail
 cd "$FLOCKIT_WORK/repo" || { echo "FLOCKIT::error=The workspace is missing"; exit 22; }
+if [ -f "$FLOCKIT_WORK/setup.sh" ]; then
+  # First task on a new workbench: create the schema, load the fixtures.
+  echo "FLOCKIT::setup=running"
+  if bash "$FLOCKIT_WORK/setup.sh" 1>&2; then echo "FLOCKIT::setup=ok"; else echo "FLOCKIT::setup=failed"; fi
+fi
 PROMPT="$(cat "$FLOCKIT_WORK/prompt.md")"
 if [ "$FLOCKIT_VENDOR" = "codex" ]; then
   codex exec --json $FLOCKIT_CODEX_FLAGS ${FLOCKIT_MODEL:+-m "$FLOCKIT_MODEL"} "$PROMPT"
@@ -193,6 +199,11 @@ class TaskRun:
         self.control: Dict[str, str] = {}
         self.proc: Optional[subprocess.Popen] = None
         self.container = f"flockit-{self.id[:12]}"
+        # The AI developer's workbench: its database and services, kept between tasks.
+        spec = task.get("environment")
+        self.bench = (
+            Workbench(spec, runner.cfg.image) if isinstance(spec, dict) and runner.cfg.backend == "docker" else None
+        )
 
     # --- events to Flockit ------------------------------------------------
 
@@ -265,7 +276,9 @@ class TaskRun:
             codex_flags = "--full-auto"
         name = self.agent.get("name") or "Flockit AI developer"
         email = f"{self.agent.get('id', 'ai')}@agents.flockit.local"
+        extra = self.bench.env() if self.bench else {}
         return {
+            **extra,
             "FLOCKIT_TASK_ID": self.id,
             "FLOCKIT_TITLE": self.task["title"],
             "FLOCKIT_VENDOR": self.vendor,
@@ -329,11 +342,17 @@ class TaskRun:
             return ["bash", os.path.join(workdir, "task.sh")], full_env
         cmd = ["docker", "run", "--rm", "--name", self.container, "-v", f"{workdir}:/work", "-e", "FLOCKIT_WORK=/work",
                "--memory", "4g", "--cpus", "2", "--pids-limit", "512"]
+        if self.bench:
+            cmd += self.bench.docker_args()
         for key, value in env.items():
             cmd += ["-e", f"{key}={value}"]
         for key in SECRETS:
             if os.environ.get(key):
                 cmd += ["-e", key]  # value inherited from the runner's environment, never on the command line
+        # Workbench secrets are named by the org and passed through the same way.
+        for key in self.bench.spec["secret_names"] if self.bench else []:
+            if os.environ.get(key):
+                cmd += ["-e", key]
         cmd += [self.runner.cfg.image, "bash", "/work/task.sh"]
         return cmd, dict(os.environ)
 
@@ -348,8 +367,16 @@ class TaskRun:
         status, result, error, pr_url, cost = "failed", None, None, None, None
         host = ""
         try:
-            env = self._prepare(workdir)
             host = self._checkout(workdir)
+            if self.bench:
+                self.runner.report(self.id, "starting")
+                self.bench.up()
+                setup = self.bench.setup_command()
+                if setup:
+                    with open(os.path.join(workdir, "setup.sh"), "w") as fh:
+                        fh.write(setup)
+                    os.chmod(os.path.join(workdir, "setup.sh"), 0o666)
+            env = self._prepare(workdir)
             cmd, proc_env = self._command(workdir, env)
             repo_root = "/work/repo" if self.runner.cfg.backend == "docker" else os.path.join(workdir, "repo")
             if isinstance(self.converter, Converter):
@@ -414,6 +441,10 @@ class TaskRun:
             if cancelled:
                 self.send([self._event("session.end", end_reason="cancelled")])
                 return
+            if self.control.get("setup") == "ok" and self.bench:
+                self.bench.mark_seeded()
+            if self.control.get("setup") == "failed" and status != "succeeded":
+                error = (error or "") + "\n\nThe workbench setup script failed; the agent ran without seeded data."
             if self.control.get("error"):
                 error = self.control["error"]
             elif code == 0 and not (isinstance(outcome, dict) and outcome.get("is_error")):
@@ -440,10 +471,21 @@ class TaskRun:
             error = f"The runner failed to run this task: {type(exc).__name__}"
             log.write(f"{error}: {exc}")
         finally:
+            if self.bench:
+                try:
+                    self.bench.down()  # persistent workbenches keep running; throwaway ones go
+                except Exception as exc:  # noqa: BLE001
+                    log.write(f"workbench teardown: {exc}")
             shutil.rmtree(workdir, ignore_errors=True)
             if error or status == "succeeded":
                 self.runner.report(self.id, status, result=scrub(result) if result else None,
                                    error=scrub(error) if error else None, pr_url=pr_url, cost_usd=cost)
+                # Work that came from Slack is answered in Slack, by the runner: the server
+                # makes no outbound calls of its own.
+                token = os.environ.get("SLACK_BOT_TOKEN", "")
+                if token:
+                    notify.task_finished(token, self.task, status, result=result, error=error, pr_url=pr_url,
+                                         server_url=self.runner.cfg.server_url)
 
 
 class Runner:

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { KeyRound, LogOut, Monitor, Moon, ScrollText, Sun } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut, Monitor, Moon, ScrollText, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink } from "react-router";
 
@@ -11,14 +11,22 @@ import { Dialog } from "./Dialog";
 import { Logo } from "./Logo";
 import { Avatar, Button, ErrorNote, Field, Input } from "./ui";
 
+/**
+ * Three destinations for a developer: their work, their AI developers, and how to connect.
+ * Everything else (tasks, workflows, search, people) is reachable from inside those, and
+ * from the account menu. A platform people open every day should not open onto a menu.
+ */
 const NAV = [
-  { to: "/", label: "Sessions", end: true },
+  { to: "/", label: "Work", end: true },
+  { to: "/ai", label: "AI developers" },
+  { to: "/connect", label: "Connect" },
+];
+
+const MORE = [
   { to: "/tasks", label: "Tasks" },
   { to: "/workflows", label: "Workflows" },
-  { to: "/ai", label: "AI developers" },
   { to: "/search", label: "Search" },
   { to: "/people", label: "People" },
-  { to: "/connect", label: "Connect" },
 ];
 
 export function Layout({ me, children }: { me: Me; children: ReactNode }) {
@@ -44,11 +52,12 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
                 }
               >
                 {item.label}
-                {item.to === "/tasks" && inbox.data && inbox.data.offered > 0 && (
+                {item.to === "/" && inbox.data && inbox.data.offered > 0 && (
                   <span className="ml-1.5 rounded-full bg-accent px-1.5 py-px text-[10.5px] font-semibold text-white">{inbox.data.offered}</span>
                 )}
               </NavLink>
             ))}
+            <MoreMenu />
           </nav>
           <div className="ml-auto flex items-center gap-3">
             <span className="hidden text-sm text-muted xl:inline">{me.org.name}</span>
@@ -57,6 +66,48 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
         </div>
       </header>
       <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8">{children}</main>
+    </div>
+  );
+}
+
+/** The pages that used to be in the top bar. Still one click away, just not in the way. */
+function MoreMenu() {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => root.current && !root.current.contains(e.target as Node) && setOpen(false);
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  return (
+    <div ref={root} className="relative shrink-0">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={clsx(
+          "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
+          open ? "bg-surface-2 text-ink" : "text-muted hover:text-ink",
+        )}
+        aria-expanded={open}
+      >
+        More <ChevronDown className="size-3.5" />
+      </button>
+      {open && (
+        <div className="absolute left-0 z-30 mt-1.5 w-44 rounded-xl border border-line bg-surface p-1.5 shadow-xl">
+          {MORE.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              onClick={() => setOpen(false)}
+              className={({ isActive }) =>
+                clsx("block rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2", isActive && "bg-surface-2 font-medium")
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

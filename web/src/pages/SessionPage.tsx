@@ -1,6 +1,6 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowLeft, ChevronRight, FileCode2, Forward, GitBranch, ListTodo, Terminal, Wrench } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileCode2, Forward, GitBranch, ListTodo, Play, Terminal, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
@@ -67,8 +67,11 @@ export function SessionPage({ me }: { me: Me }) {
                 · {vendorLabel(s.agent_vendor)} · {prettyModel(s.agent_model)} · {dateTime(s.started_at)}
               </div>
             </div>
-            <div className="ml-auto flex shrink-0 items-center gap-2">
+            <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
               <StatusBadge s={s} />
+              {s.owner.id === me.user.id && s.agent_vendor === "claude-code" && s.origin !== "workflow" && (
+                <Continue id={s.id} />
+              )}
               <Button size="sm" onClick={() => setHandoff(true)} title="Turn this session into a task for someone else, or for an AI developer">
                 <Forward className="size-3.5" /> Hand off
               </Button>
@@ -273,5 +276,33 @@ function Message({
       </button>
       {open && <pre className="mt-1 mb-2 ml-5 max-h-96 overflow-auto rounded-lg bg-surface-2 p-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">{m.content}</pre>}
     </li>
+  );
+}
+
+/**
+ * Pick this conversation back up on your own machine: the agent reopens the original
+ * Claude Code session with `--resume`, in the checkout it belongs to, so the context is
+ * the one it had when you stopped.
+ */
+function Continue({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const [note, setNote] = useState<string | null>(null);
+  const go = useMutation({
+    mutationFn: () => api<{ task_id: string; status: string; machine: string | null }>(`/api/sessions/${id}/continue`, { method: "POST" }),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      setNote(
+        r.machine
+          ? `Sent to ${r.machine}. Accept it there and Claude Code reopens this session.`
+          : "Waiting for one of your machines to come online.",
+      );
+    },
+  });
+  if (note) return <span className="text-[13px] text-muted">{note}</span>;
+  return (
+    <Button size="sm" variant="primary" loading={go.isPending} onClick={() => go.mutate()} title="Reopen this session on your machine">
+      <Play className="size-3.5" /> Continue
+    </Button>
   );
 }
