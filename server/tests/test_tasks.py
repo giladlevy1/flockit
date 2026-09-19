@@ -222,3 +222,61 @@ async def test_webhook_work_for_a_person_never_auto_starts(team, client_factory)
     # the same workflow run by hand still auto-starts, because a person chose to run it
     manual = (await lead.post(f"/api/workflows/{wf['id']}/run", json={})).json()
     assert manual["status"] == "queued"
+
+
+# --- hardening from the security review -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "repo",
+    ["attacker.example/x/y", "github.com/../../x", "github.com/-u/x", "https://github.com/acme/api", "github.com/a b/c"],
+)
+async def test_tasks_cannot_point_at_untrusted_or_malformed_repos(team, repo):
+    r = await team["lead"].post("/api/tasks", json=task(team["ai"]["id"], repo=repo))
+    assert r.status_code == 422, r.text
+
+
+async def test_allowed_hosts_and_local_names(team):
+    ok = await team["lead"].post("/api/tasks", json=task(team["ai"]["id"], repo="gitlab.com/acme/api"))
+    assert ok.status_code == 201
+    # a bare local repo name is fine for a person (their own checkout), never for an AI developer
+    assert (await team["lead"].post("/api/tasks", json=task(team["dev"].user_id, repo="my-service"))).status_code == 201
+    assert (await team["lead"].post("/api/tasks", json=task(team["ai"]["id"], repo="my-service"))).status_code == 422
+
+
+async def test_base_branch_is_validated(team):
+    bad = await team["lead"].post("/api/tasks", json=task(team["dev"].user_id, base_branch="--orphan=x"))
+    assert bad.status_code == 422
+    assert (await team["lead"].post("/api/tasks", json=task(team["dev"].user_id, base_branch="release/2026.09"))).status_code == 201
+
+
+async def test_workflows_are_scoped_to_what_a_lead_can_assign(team, make_user, admin):
+    outsider = team["other"]
+    wf = (await admin.post("/api/workflows", json=workflow(outsider.user_id, mode="ask"))).json()
+    lead = team["lead"]
+    # a lead cannot see, change, rotate or delete a workflow aimed at someone outside their teams
+    assert [w["id"] for w in (await lead.get("/api/workflows")).json()] == []
+    assert (await lead.get(f"/api/workflows/{wf['id']}")).status_code == 404
+    assert (await lead.put(f"/api/workflows/{wf['id']}", json=workflow(team["dev"].user_id))).status_code == 403
+    assert (await lead.post(f"/api/workflows/{wf['id']}/webhook-secret")).status_code == 403
+    assert (await lead.delete(f"/api/workflows/{wf['id']}")).status_code == 403
+    assert (await admin.delete(f"/api/workflows/{wf['id']}")).status_code == 204
+
+
+async def test_ai_developer_instructions_are_not_org_wide(team, admin):
+    dev_view = (await team["dev"].get("/api/ai-developers")).json()[0]
+    assert dev_view["instructions"] is None
+    assert (await admin.get("/api/ai-developers")).json()[0]["name"] == "Ada Bot"
+
+
+async def test_webhook_deliveries_are_rate_limited(team, client_factory, monkeypatch):
+    from flockit_server.settings import get_settings
+
+    monkeypatch.setenv("FLOCKIT_WEBHOOK_RATE_PER_HOUR", "3")
+    get_settings.cache_clear()
+    wf = (await team["lead"].post("/api/workflows", json=workflow(team["ai"]["id"], webhook_enabled=True))).json()
+    path = wf["webhook_url"].replace("http://flockit.test", "")
+    anon = client_factory()
+    codes = [(await anon.post(path, json={"issue": {"title": "x"}})).status_code for _ in range(5)]
+    assert codes[:3] == [202, 202, 202] and codes[3:] == [429, 429]
+    get_settings.cache_clear()

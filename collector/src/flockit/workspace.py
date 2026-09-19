@@ -27,6 +27,22 @@ def _git(args: List[str], cwd: Optional[str] = None, timeout: int = 120) -> str:
     return out.stdout.strip()
 
 
+_REPO = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.\-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~\-]+){1,6}$")
+_LOCAL = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._\-]{0,99}$")
+
+
+def check_repo(repo: str) -> str:
+    """Accept ``host/owner/name`` or a plain local name. Reject anything git could read as an
+    option or a path (``..``, leading dashes, URLs, absolute paths)."""
+    repo = (repo or "").strip()
+    segments = repo.split("/")
+    if any(seg in ("", ".", "..") or seg.startswith("-") for seg in segments) or "://" in repo:
+        raise WorkspaceError(f"Not a valid repository: {repo!r}")
+    if not (_REPO.match(repo) or _LOCAL.match(repo)):
+        raise WorkspaceError(f"Not a valid repository: {repo!r}")
+    return repo
+
+
 def remote_urls(repo: str) -> List[str]:
     """``github.com/acme/api`` -> HTTPS and SSH clone URLs to try, in that order."""
     host, _, path = repo.partition("/")
@@ -42,6 +58,7 @@ def clone_root() -> Path:
 
 def find_or_clone(repo: str) -> str:
     """The developer's checkout if Flockit has seen one, otherwise a clone made with their own git credentials."""
+    repo = check_repo(repo)
     known = repos.find(repo)
     if known:
         return known
@@ -52,7 +69,7 @@ def find_or_clone(repo: str) -> str:
     errors = []
     for url in remote_urls(repo):
         try:
-            _git(["clone", "--quiet", url, str(target)], timeout=600)
+            _git(["clone", "--quiet", "--", url, str(target)], timeout=600)
             repos.remember(repo, str(target))
             return str(target)
         except WorkspaceError as exc:
@@ -95,6 +112,8 @@ def prepare(repo: Optional[str], base_branch: Optional[str], branch: str, task_i
     """A worktree for the task, on ``branch``. Reuses it if the task is started again."""
     if not repo:
         raise WorkspaceError("The task has no repository")
+    if base_branch and (base_branch.startswith("-") or ".." in base_branch):
+        raise WorkspaceError(f"Not a valid base branch: {base_branch!r}")
     root = find_or_clone(repo)
     leaf = re.sub(r"[^A-Za-z0-9._-]+", "-", branch.split("/")[-1])[:48]
     path = worktrees_dir() / (leaf if leaf.startswith(task_id[:8]) else f"{task_id[:8]}-{leaf}")
@@ -105,5 +124,5 @@ def prepare(repo: Optional[str], base_branch: Optional[str], branch: str, task_i
         _git(["rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=root)
         _git(["worktree", "add", "--quiet", str(path), branch], cwd=root)
     except WorkspaceError:
-        _git(["worktree", "add", "--quiet", "-b", branch, str(path), _base_ref(root, base_branch)], cwd=root)
+        _git(["worktree", "add", "--quiet", "-b", branch, str(path), _base_ref(root, base_branch), "--"], cwd=root)
     return str(path)

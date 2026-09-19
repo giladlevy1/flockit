@@ -81,6 +81,12 @@ async def collector_identity(request: Request, db: AsyncSession = Depends(get_db
     if found is None or not found[1].is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or revoked collector token")
     api_token, user = found
+    if api_token.run_id is not None:
+        from flockit_server.models import RunStatus, WorkflowRun
+
+        run = await db.get(WorkflowRun, api_token.run_id)
+        if run is None or run.status in (RunStatus.succeeded, RunStatus.failed, RunStatus.cancelled, RunStatus.declined):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This task has ended")
     now = _now()
     if api_token.last_used_at is None or now - api_token.last_used_at > timedelta(minutes=1):
         await db.execute(update(ApiToken).where(ApiToken.id == api_token.id).values(last_used_at=now))

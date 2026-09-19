@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
@@ -34,24 +35,31 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + f"\n… [{len(text) - limit} more characters]"
 
 
+# Anyone's home directory, not just this machine's: /Users/alice, /home/bob, C:\Users\carol.
+_OTHER_HOME = re.compile(r"(?:/Users|/home|/var/root|[A-Za-z]:\\Users)[/\\][^/\\\s\"']{1,64}")
+# Volume and mount names can carry a customer's name.
+_MOUNT = re.compile(r"/(?:Volumes|mnt|media)/[^/\s\"']{1,64}")
+
+
 class PathRewriter:
-    """Rewrites absolute paths so the repository root becomes ``.`` and home becomes ``~``."""
+    """Rewrites absolute paths: the repository root becomes ``.``, this machine's home ``~``,
+    anyone else's home ``~other``, and other mounts a placeholder. Usernames and directory
+    layouts never leave the machine."""
 
     def __init__(self, repo_root: Optional[str]) -> None:
-        self.pairs = []
+        self.prefixes = []
         if repo_root:
-            self.pairs.append((repo_root.rstrip("/") + "/", "./"))
-            self.pairs.append((repo_root.rstrip("/"), "."))
+            self.prefixes.append((repo_root.rstrip("/"), "."))
         home = os.path.expanduser("~")
         if home and home != "/":
-            self.pairs.append((home.rstrip("/") + "/", "~/"))
-            self.pairs.append((home.rstrip("/"), "~"))
+            self.prefixes.append((home.rstrip("/"), "~"))
 
     def __call__(self, text: str) -> str:
-        for old, new in self.pairs:
-            if old in text:
-                text = text.replace(old, new)
-        return text
+        for old, new in self.prefixes:
+            # Only at a path boundary, so /Users/mymacbook is not turned into ~book.
+            text = re.sub(re.escape(old) + r"(?=[/\s\"'`,;:)\]}]|$)", new, text)
+        text = _OTHER_HOME.sub("~other", text)
+        return _MOUNT.sub("/mount", text)
 
     def relative(self, path: str) -> str:
         rewritten = self(path)
@@ -134,11 +142,13 @@ class Converter:
         if name in EDIT_TOOLS | {"Read"} and isinstance(data.get("file_path"), str):
             text = self.paths.relative(data["file_path"])
             if name == "Edit" and isinstance(data.get("old_string"), str):
-                text += "\n--- replace\n" + data["old_string"][:1500] + "\n+++ with\n" + str(data.get("new_string", ""))[:1500]
+                # Scrub before truncating: cutting first could leave half a credential behind.
+                text += "\n--- replace\n" + _clip(scrub(data["old_string"]), 1500)
+                text += "\n+++ with\n" + _clip(scrub(str(data.get("new_string", ""))), 1500)
             elif name == "Write" and isinstance(data.get("content"), str):
                 text += f"\n({len(data['content'])} characters written)"
             return redact_text(text, self.paths, MAX_TOOL_INPUT)
-        compact = {k: (v if not isinstance(v, str) or len(v) < 500 else v[:500] + "…") for k, v in data.items()}
+        compact = {k: (_clip(scrub(v), 500) if isinstance(v, str) else v) for k, v in data.items()}
         return redact_text(json.dumps(compact, ensure_ascii=False, default=str), self.paths, MAX_TOOL_INPUT)
 
     @staticmethod
@@ -214,6 +224,8 @@ class Converter:
                     data = block.get("input")
                     if name in EDIT_TOOLS and isinstance(data, dict) and isinstance(data.get("file_path"), str):
                         rel = scrub(self.paths.relative(data["file_path"]))[:500]
+                        if rel.startswith(("/", "~")) or ":\\" in rel:
+                            rel = ".../" + "/".join(rel.replace("\\", "/").split("/")[-2:])  # outside the repo: last segments only
                         batch.files[rel] = batch.files.get(rel, 0) + 1
                     self._add(batch, bid, "assistant", "tool_use", self._tool_input(name, data), at, name)
                 elif btype == "tool_result":

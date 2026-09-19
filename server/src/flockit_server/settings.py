@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     # A session counts as live if it reported activity within this many minutes.
     live_window_minutes: int = 15
     sweep_interval_seconds: int = 300
+    # Git hosts tasks may point at. Runners send git credentials only to these hosts,
+    # so a task can never make a runner hand its token to someone else's server.
+    allowed_git_hosts: str = "github.com,gitlab.com,bitbucket.org"
+    # Webhook deliveries accepted per workflow per hour (a leaked URL cannot run up a bill).
+    webhook_rate_per_hour: int = 120
     web_dist: Path = Path(__file__).resolve().parent / "static"
     collector_dist: Path = Path(__file__).resolve().parent / "collector_dist"
 

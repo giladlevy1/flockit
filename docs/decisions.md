@@ -42,6 +42,8 @@ every past session in an org is also the right place to hand out the next piece 
 | 23 | **Triggers: manual, cron (with time zones), generic webhook.** No first-party GitHub/Zendesk apps. | A generic webhook with a JSON filter covers them all without outbound calls or OAuth apps. | When a first-party integration removes real setup pain. |
 | 24 | **Postgres full-text search**, no vector database. | Constraint 6 still holds (Postgres only). Exact terms, file names and error strings are what people search for. | If semantic search becomes the bottleneck. |
 | 25 | **Codex support is runner-only.** Laptops run Claude Code. | Claude Code's hooks give the richest capture on laptops; Codex's JSON stream is enough for sandboxes. | — |
+| 26 | **Git credentials never enter a sandbox.** The runner clones and publishes; the container edits and commits locally. | An agent running with full permissions is inside the blast radius of any prompt injection in the repo or the ticket. It should not hold a push token. | If per-task, per-repo deploy keys become practical. |
+| 27 | **Git hosts are an allowlist** (`FLOCKIT_ALLOWED_GIT_HOSTS`), enforced when a task is created and again before the runner sends credentials. | Otherwise a workflow could point a runner at an attacker's server and hand it the org's git token. | — |
 
 ## Open questions for the next milestone
 

@@ -13,6 +13,13 @@ FLOCKIT_PUBLIC_URL=https://flockit.internal.example.com   # what developer lapto
 FLOCKIT_SECURE_COOKIES=true                               # once it is served over HTTPS
 ```
 
+Optional, with sensible defaults:
+
+```bash
+FLOCKIT_ALLOWED_GIT_HOSTS=github.com,gitlab.com,bitbucket.org   # hosts tasks may name; runners send credentials only here
+FLOCKIT_WEBHOOK_RATE_PER_HOUR=120                               # deliveries accepted per workflow per hour
+```
+
 `FLOCKIT_PUBLIC_URL` matters: it is baked into the install command on the Connect page. Without it,
 Flockit records the address the admin used during first-run setup (admins can change it on the Connect
 page). That is wrong if setup happened over `localhost`, so set it explicitly in production. Ordinary
@@ -87,8 +94,11 @@ export GH_TOKEN=...                 # clone private repos, push branches, open p
 ~/.flockit/venv/bin/flockit runner --server https://flockit.internal.example.com --token frn_... --capacity 2
 ```
 
-- Each task runs in a new container (`--memory 4g --cpus 2 --pids-limit 512`), removed afterwards. Credentials are passed by
-  name from the runner's environment, never on the command line.
+- Each task runs in a new container (`--memory 4g --cpus 2 --pids-limit 512`), removed afterwards. Model credentials are
+  passed by name from the runner's environment, never on the command line.
+- **`GH_TOKEN` never enters a container.** The runner clones the repository and pushes the branch itself; the sandbox only
+  edits and commits locally. The token is sent only to the hosts in `FLOCKIT_RUNNER_GIT_HOSTS` (default `github.com`), so a
+  task naming another host gets no credentials — set it if you self-host git: `export FLOCKIT_RUNNER_GIT_HOSTS=git.acme.com`.
 - Pools: give a runner `--pool` (set when you create it in the UI) and an AI developer the same pool to pin its work there.
 - Git hosts reached over SSH: `--clone-url 'git@{host}:{path}.git'`.
 - Keep it running with systemd, a container, or your process manager of choice.

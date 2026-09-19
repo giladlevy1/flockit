@@ -65,6 +65,66 @@ async def audit(
     )
 
 
+# --- Validating what a task points at ------------------------------------------
+
+_REPO = re.compile(
+    r"^(?P<host>[A-Za-z0-9](?:[A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?(?::[0-9]{1,5})?)"
+    r"/(?P<path>[A-Za-z0-9._~\-]+(?:/[A-Za-z0-9._~\-]+){0,6})$"
+)
+_LOCAL_REPO = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._\-]{0,99}$")
+_BRANCH = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/\-]{0,199}$")
+
+
+def allowed_hosts() -> set[str]:
+    from flockit_server.settings import get_settings
+
+    return {h.strip().lower() for h in get_settings().allowed_git_hosts.split(",") if h.strip()}
+
+
+def validate_repo(repo: Optional[str], *, for_ai: bool) -> Optional[str]:
+    """``host/owner/name`` on an allowed git host, or (for people only) a bare local repo name.
+
+    Rejects anything a git client could read as an option or a path outside a workspace:
+    ``..`` segments, leading dashes, URLs, and hosts nobody allowed.
+    """
+    if repo is None or not repo.strip():
+        return None
+    repo = repo.strip()
+    m = _REPO.match(repo)
+    if m:
+        segments = m.group("path").split("/")
+        if any(seg in (".", "..") or seg.startswith("-") for seg in segments):
+            raise HTTPException(422, "Repository path contains an invalid segment")
+        host = m.group("host").lower()
+        if host.split(":")[0] not in allowed_hosts():
+            raise HTTPException(
+                422, f"{host} is not an allowed git host. An admin can add it with FLOCKIT_ALLOWED_GIT_HOSTS."
+            )
+        return f"{host}/{m.group('path')}"
+    if not for_ai and _LOCAL_REPO.match(repo) and repo not in (".", ".."):
+        return repo  # a repository the person has on their machine, found by name
+    raise HTTPException(422, "Use host/owner/name, for example github.com/acme/api")
+
+
+def validate_branch(branch: Optional[str]) -> Optional[str]:
+    if branch is None or not branch.strip():
+        return None
+    branch = branch.strip()
+    if not _BRANCH.match(branch) or ".." in branch or branch.endswith((".lock", "/")) or "//" in branch:
+        raise HTTPException(422, "Not a valid branch name")
+    return branch
+
+
+async def revoke_task_tokens(db: AsyncSession, run: WorkflowRun) -> None:
+    from sqlalchemy import update as sql_update
+
+    from flockit_server.models import ApiToken
+
+    await db.execute(
+        sql_update(ApiToken).where(ApiToken.run_id == run.id, ApiToken.revoked_at.is_(None)).values(revoked_at=now())
+    )
+
+
 # --- Who may assign work to whom ----------------------------------------------
 
 
@@ -193,6 +253,7 @@ async def decline(db: AsyncSession, run: WorkflowRun, user: User, reason: Option
     run.status = RunStatus.declined
     run.ended_at = now()
     run.error = (reason or "")[:2000] or None
+    await revoke_task_tokens(db, run)
     await audit(db, run.org_id, user, "task.declined", "task", run.id, {"reason": reason})
 
 
@@ -200,6 +261,7 @@ async def cancel(db: AsyncSession, run: WorkflowRun, user: User) -> None:
     _require(run, *ACTIVE_RUN_STATUSES)
     run.status = RunStatus.cancelled
     run.ended_at = now()
+    await revoke_task_tokens(db, run)
     await audit(db, run.org_id, user, "task.cancelled", "task", run.id)
 
 
@@ -221,11 +283,16 @@ async def retry(db: AsyncSession, run: WorkflowRun, user: User) -> WorkflowRun:
         mode=run.mode,
         permission_profile=run.permission_profile,
         trigger="retry",
-        trigger_payload={"retry_of": str(run.id)},
+        # A retry of webhook work is still webhook work: keep the flag that adds the injection warning.
+        trigger_payload={"retry_of": str(run.id), "from_webhook": from_webhook(run)},
         triggered_by=user,
         workflow=run.workflow,
     )
     return new
+
+
+def from_webhook(run: WorkflowRun) -> bool:
+    return run.trigger == "webhook" or bool((run.trigger_payload or {}).get("from_webhook"))
 
 
 _PR = re.compile(r"https://[A-Za-z0-9.\-]+/[^\s)\"'>]+/(?:pull|merge_requests)/\d+")
@@ -266,6 +333,7 @@ async def report(
     if error is not None:
         run.error = error[:10_000]
     run.pr_url = (pr_url or find_pr_url(result) or run.pr_url or None)
+    await revoke_task_tokens(db, run)
     if cost_usd is not None and cost_usd >= 0:
         run.cost_usd = round(float(cost_usd), 4)
     await audit(db, run.org_id, actor, f"task.{status.value}", "task", run.id, {"pr_url": run.pr_url})

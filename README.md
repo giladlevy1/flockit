@@ -58,6 +58,12 @@ connection strings, secret-named environment variables, high-entropy blobs) and 
 layouts are never sent. The redaction step has its own [test suite](collector/tests/test_redact.py). Transcripts are visible
 only within role scope: developers see their own, leads their teams', admins the organisation's.
 
+**Where do the git and model credentials for AI developers live?**
+On the runner, never in a sandbox. The container gets the task, the repository and a task-scoped ingest token; the runner itself
+does the clone and the push, and hands its git token only to hosts on an allowlist (`FLOCKIT_ALLOWED_GIT_HOSTS`, GitHub/GitLab/
+Bitbucket by default). A task that names some other host is refused when it is created, so no one can point a runner at a server
+that collects tokens.
+
 **Can Flockit run code on my laptop?**
 Only if you let it. A task sent to you waits in your inbox until you accept it (then Claude Code opens in a terminal, in a new
 git worktree, so your own checkout is never touched). You can allow **auto-start** for workflows you trust; auto-started tasks run

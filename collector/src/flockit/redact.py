@@ -92,12 +92,14 @@ _QUERY_SECRET = re.compile(
 
 # KEY=value / KEY: value where the key name says it is secret
 _SECRET_NAME = (
-    r"[A-Za-z0-9_\-]{0,64}(?:SECRET|PASSWORD|PASSWD|PWD|TOKEN|API[_\-]?KEY|APIKEY|ACCESS[_\-]?KEY|"
+    r"[A-Za-z0-9_\-]{0,64}(?:SECRET|PASSWORD|PASSWD|PASS|PWD|TOKEN|API[_\-]?KEY|APIKEY|ACCESS[_\-]?KEY|"
     r"PRIVATE[_\-]?KEY|CREDENTIAL|AUTHORIZATION|AUTH(?![A-Za-z])|SESSION[_\-]?KEY|DSN|CONN(?:ECTION)?[_\-]?STR(?:ING)?|"
     r"DATABASE[_\-]?URL)[A-Za-z0-9_\-]{0,64}"
 )
+# KEY=value, KEY: value, and JSON/YAML shapes where the key is quoted: "password": "x".
 _ASSIGNMENT = re.compile(
-    r"(?P<key>" + _L + _SECRET_NAME + r")(?P<sep>\s{0,8}=>\s{0,8}|\s{0,8}[=:]\s{0,8})(?P<q>[\"']?)(?P<val>[^\s\"'&,;]+)(?P=q)",
+    r"(?P<key>[\"']?" + _L + _SECRET_NAME + r"[\"']?)(?P<sep>\s{0,8}=>\s{0,8}|\s{0,8}[=:]\s{0,8})"
+    r"(?P<q>[\"']?)(?P<val>[^\s\"'&,;}\]]+)(?P=q)",
     re.IGNORECASE,
 )
 

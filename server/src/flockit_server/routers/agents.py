@@ -70,7 +70,7 @@ class AiDevOut(BaseModel):
     current_task: Optional[dict]
 
 
-async def _ai_out(db: AsyncSession, u: User) -> AiDevOut:
+async def _ai_out(db: AsyncSession, u: User, viewer: Optional[User] = None) -> AiDevOut:
     counts = {
         s.value: n
         for s, n in (
@@ -90,10 +90,14 @@ async def _ai_out(db: AsyncSession, u: User) -> AiDevOut:
             .where(WorkflowRun.assignee_id == u.id)
         )
     ).one()
+    current_q = select(WorkflowRun).where(
+        WorkflowRun.assignee_id == u.id, WorkflowRun.status.in_([RunStatus.starting, RunStatus.running])
+    )
+    if viewer is not None:
+        current_q = current_q.where(runs.visible_runs(viewer))  # never show a task the viewer cannot see
     current = (
         await db.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.assignee_id == u.id, WorkflowRun.status.in_([RunStatus.starting, RunStatus.running]))
+            current_q
             .order_by(WorkflowRun.started_at.desc().nulls_last())
             .limit(1)
         )
@@ -107,7 +111,8 @@ async def _ai_out(db: AsyncSession, u: User) -> AiDevOut:
         agent_model=u.agent_model,
         runner_pool=u.runner_pool,
         sponsor={"id": sponsor.id, "name": sponsor.name} if sponsor else None,
-        instructions=u.instructions,
+        # Standing instructions are for the people who run the AI developer.
+        instructions=u.instructions if viewer is None or viewer.role == Role.admin or viewer.id == u.sponsor_id else None,
         teams=[{"id": t.id, "name": t.name} for t in sorted(u.teams, key=lambda t: t.name)],
         is_active=u.is_active,
         created_at=u.created_at,
@@ -143,7 +148,7 @@ async def list_ai_devs(user: User = Depends(current_user), db: AsyncSession = De
             select(User).where(User.org_id == user.org_id, User.kind == UserKind.ai).order_by(User.is_active.desc(), User.name)
         )
     ).scalars().all()
-    return [await _ai_out(db, u) for u in rows]
+    return [await _ai_out(db, u, user) for u in rows]
 
 
 @router.post("/api/ai-developers", response_model=AiDevOut, status_code=201)

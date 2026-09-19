@@ -164,7 +164,7 @@ def test_interactive_task_opens_a_terminal_with_the_task(server, origin, tmp_pat
     _, checkout = origin
     repos.remember("app", str(checkout))
     marker = tmp_path / "opened.txt"
-    claude = fake_claude(tmp_path, "claude", f'echo "$FLOCKIT_TASK_ID|$PWD|$1" > {marker}\n')
+    claude = fake_claude(tmp_path, "claude", f'echo "$FLOCKIT_TASK_ID|$PWD|$*" > {marker}\n')
     monkeypatch.setenv("FLOCKIT_CLAUDE_BIN", str(claude))
     monkeypatch.setenv("FLOCKIT_TERMINAL", "sh")  # stands in for Terminal.app / gnome-terminal
     config.save(config.Config(server_url=server.url, token="flk_t"))
@@ -172,9 +172,9 @@ def test_interactive_task_opens_a_terminal_with_the_task(server, origin, tmp_pat
     server.tasks.append(t)
     Agent(config.load()).poll_once(wait=0)
     assert wait_for(lambda: marker.exists() and marker.read_text().strip())
-    task_id, cwd, prompt = marker.read_text().strip().split("|", 2)
+    task_id, cwd, args = marker.read_text().strip().split("|", 2)
     assert task_id == t["id"] and "worktrees" in cwd
-    assert prompt == t["prompt"]  # passed through intact, never evaluated by the shell
+    assert args == f"--setting-sources user {t['prompt']}"  # intact, never evaluated by the shell
     assert [r[1]["status"] for r in server.reports] == ["running"]  # the session hooks report the rest
 
 
@@ -237,3 +237,57 @@ def test_runner_clone_failure_is_reported(server, tmp_path):
     runner.poll_once(wait=0)
     assert wait_for(lambda: server.state.get(t["id"]) == "failed", timeout=30)
     assert "Could not clone" in server.reports[-1][1]["error"]
+
+
+# --- hardening from the security review -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "repo",
+    ["../../etc", "evil.com/../../x", "-u attacker", "https://evil.com/x", "/etc/passwd", "x/--upload-pack=touch", ""],
+)
+def test_dangerous_repos_are_refused(repo):
+    with pytest.raises(workspace.WorkspaceError):
+        workspace.check_repo(repo)
+
+
+def test_ordinary_repos_are_accepted():
+    for repo in ["github.com/acme/api", "gitlab.example.com:8443/group/sub/repo", "my-local-repo"]:
+        assert workspace.check_repo(repo) == repo
+
+
+def test_dangerous_base_branch_is_refused(origin):
+    _, checkout = origin
+    repos.remember("app", str(checkout))
+    with pytest.raises(workspace.WorkspaceError):
+        workspace.prepare("app", "--orphan=x", "flockit/x", str(uuid.uuid4()))
+
+
+def test_git_credentials_never_enter_a_sandbox(monkeypatch):
+    from flockit import runner as runner_mod
+
+    monkeypatch.setenv("GH_TOKEN", "ghp_" + "secret" * 6)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    assert "GH_TOKEN" not in runner_mod.SECRETS and "GITHUB_TOKEN" not in runner_mod.SECRETS
+    assert "ANTHROPIC_API_KEY" in runner_mod.SECRETS
+    # the agent script has no clone, push or credential handling in it
+    assert "GH_TOKEN" not in runner_mod.AGENT_SCRIPT and "clone" not in runner_mod.AGENT_SCRIPT
+    r = runner_mod.Runner(runner_mod.RunnerConfig(server_url="http://x", token="frn_x", backend="docker"))
+    run = runner_mod.TaskRun(r, task(repo="github.com/acme/api", agent={"name": "Ada"}, ingest_token="flk_t"))
+    cmd, _ = run._command("/tmp/wd", run._prepare("/tmp/wd") if False else {"FLOCKIT_TASK_ID": run.id})
+    joined = " ".join(cmd)
+    assert "GH_TOKEN" not in joined and "GITHUB_TOKEN" not in joined
+    assert "-e ANTHROPIC_API_KEY" in joined  # by name only: the value is inherited, not printed
+
+
+def test_git_token_only_goes_to_allowed_hosts(monkeypatch):
+    from flockit import runner as runner_mod
+
+    monkeypatch.setenv("GH_TOKEN", "ghp_" + "x" * 30)
+    monkeypatch.delenv("FLOCKIT_RUNNER_GIT_HOSTS", raising=False)
+    allowed = runner_mod.git_env("github.com")
+    assert any("AUTHORIZATION" in v for v in allowed.values())
+    other = runner_mod.git_env("attacker.example")
+    assert not any("AUTHORIZATION" in str(v) for v in other.values())
+    assert "GH_TOKEN" not in allowed and "GH_TOKEN" not in other  # git never sees the raw token either
+    assert runner_mod.valid_repo("github.com/acme/api") and not runner_mod.valid_repo("github.com/../../x")

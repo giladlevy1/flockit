@@ -211,16 +211,18 @@ async def create_task(body: TaskIn, user: User = Depends(current_user), db: Asyn
     assignee = await db.get(User, body.assignee_id)
     if assignee is None or not await runs.assignable(db, user, assignee):
         raise HTTPException(403, "You cannot assign work to that person")
-    if assignee.kind == UserKind.ai and not body.repo:
+    repo = runs.validate_repo(body.repo, for_ai=assignee.kind == UserKind.ai)
+    if assignee.kind == UserKind.ai and not repo:
         raise HTTPException(422, "AI developers need a repository to work in")
+    base_branch = runs.validate_branch(body.base_branch)
     run = await runs.create_run(
         db,
         org_id=user.org_id,
         assignee=assignee,
         title=body.title.strip(),
         prompt=body.prompt.strip(),
-        repo=(body.repo or "").strip() or None,
-        base_branch=(body.base_branch or "").strip() or None,
+        repo=repo,
+        base_branch=base_branch,
         task_ref=(body.task_ref or "").strip() or None,
         mode=body.mode,
         permission_profile=body.permission_profile,

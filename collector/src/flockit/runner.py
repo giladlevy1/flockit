@@ -10,13 +10,19 @@ Credentials passed into sandboxes when set on the runner:
   ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN   for Claude Code
   OPENAI_API_KEY or CODEX_API_KEY                for Codex
   GH_TOKEN or GITHUB_TOKEN                       to clone private repos, push and open PRs
+
+Git credentials never enter a sandbox: the runner process clones before the agent starts
+and pushes after it exits, and sends its token only to hosts in FLOCKIT_RUNNER_GIT_HOSTS
+(default: github.com). Only the model credential is passed into the container.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
 import signal
@@ -38,7 +44,8 @@ from flockit.redact import redact_session, scrub
 
 DEFAULT_IMAGE = "flockit-sandbox:latest"
 TASK_TIMEOUT = 60 * 60
-SECRETS = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY", "GH_TOKEN", "GITHUB_TOKEN")
+# Only the model credential enters a sandbox. Git credentials stay with the runner process.
+SECRETS = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY")
 
 SANDBOX_DOCKERFILE = """\
 FROM node:22-bookworm-slim
@@ -50,36 +57,63 @@ WORKDIR /work
 ENV HOME=/home/node CI=1
 """
 
-# The whole sandbox lifecycle as one script. Control lines start with FLOCKIT:: and the
-# agent's own JSON stream goes to stdout; git noise goes to stderr.
-TASK_SCRIPT = r"""#!/bin/bash
+# What runs inside the sandbox: only the agent, then a local commit of whatever it left
+# uncommitted. Cloning and pushing happen outside, in the runner process, so the sandbox
+# never holds a git credential. Control lines start with FLOCKIT::.
+AGENT_SCRIPT = r"""#!/bin/bash
 set -uo pipefail
-cd "$FLOCKIT_WORK"
-TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
-URL="${FLOCKIT_CLONE_URL:-https://$FLOCKIT_REPO.git}"
-if [ -n "$TOKEN" ] && [ -z "${FLOCKIT_CLONE_URL:-}" ]; then URL="https://x-access-token:${TOKEN}@$FLOCKIT_REPO.git"; fi
-git clone --quiet "$URL" repo 1>&2 || { echo "FLOCKIT::error=Could not clone $FLOCKIT_REPO (set GH_TOKEN on the runner for private repositories)"; exit 20; }
-cd repo
-if [ -n "${FLOCKIT_BASE:-}" ]; then git checkout --quiet "$FLOCKIT_BASE" 1>&2 || { echo "FLOCKIT::error=Base branch $FLOCKIT_BASE not found"; exit 21; }; fi
-echo "FLOCKIT::base=$(git rev-parse --abbrev-ref HEAD)"
-git checkout --quiet -b "$FLOCKIT_BRANCH" 1>&2
-START=$(git rev-parse HEAD)
+cd "$FLOCKIT_WORK/repo" || { echo "FLOCKIT::error=The workspace is missing"; exit 22; }
 PROMPT="$(cat "$FLOCKIT_WORK/prompt.md")"
 if [ "$FLOCKIT_VENDOR" = "codex" ]; then
   codex exec --json $FLOCKIT_CODEX_FLAGS ${FLOCKIT_MODEL:+-m "$FLOCKIT_MODEL"} "$PROMPT"
 else
-  claude -p "$PROMPT" --output-format stream-json --verbose $FLOCKIT_CLAUDE_FLAGS ${FLOCKIT_MODEL:+--model "$FLOCKIT_MODEL"}
+  claude -p "$PROMPT" --output-format stream-json --verbose --setting-sources user $FLOCKIT_CLAUDE_FLAGS ${FLOCKIT_MODEL:+--model "$FLOCKIT_MODEL"}
 fi
 CODE=$?
 git add -A 1>&2
 git diff --cached --quiet || git commit --quiet -m "$FLOCKIT_TITLE" -m "Flockit task $FLOCKIT_TASK_ID" 1>&2
-COMMITS=$(git rev-list --count "$START"..HEAD)
-echo "FLOCKIT::commits=$COMMITS"
-if [ "$COMMITS" -gt 0 ] && [ -n "$TOKEN" ]; then
-  git push --quiet -u origin "$FLOCKIT_BRANCH" 1>&2 && echo "FLOCKIT::pushed"
-fi
 exit $CODE
 """
+
+# Hosts the runner will send its git token to. A task pointing anywhere else is cloned
+# without credentials (public repositories still work) and never pushed.
+DEFAULT_TOKEN_HOSTS = "github.com"
+
+
+def token_hosts() -> set:
+    raw = os.environ.get("FLOCKIT_RUNNER_GIT_HOSTS", DEFAULT_TOKEN_HOSTS)
+    return {h.strip().lower() for h in raw.split(",") if h.strip()}
+
+
+def git_token() -> str:
+    return os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+
+
+def valid_repo(repo: str) -> bool:
+    host, _, path = repo.partition("/")
+    parts = path.split("/")
+    return bool(
+        re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.\-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", host)
+        and path
+        and all(re.fullmatch(r"[A-Za-z0-9._~\-]+", p) and p not in (".", "..") and not p.startswith("-") for p in parts)
+    )
+
+
+def git_env(host: str) -> Dict[str, str]:
+    """Credentials for one host, handed to git through its environment: never in a URL,
+    a command line or .git/config, and only for hosts on the allowlist."""
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    token = git_token()
+    if token and host.lower().split(":")[0] in token_hosts():
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        env.update({"GIT_CONFIG_COUNT": "2",
+                    "GIT_CONFIG_KEY_0": f"http.https://{host}/.extraheader", "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
+                    "GIT_CONFIG_KEY_1": "safe.directory", "GIT_CONFIG_VALUE_1": "*"})
+    else:
+        env.update({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"})
+    for key in ("GH_TOKEN", "GITHUB_TOKEN"):
+        env.pop(key, None)
+    return env
 
 
 def _now() -> str:
@@ -136,6 +170,10 @@ class CodexConverter:
         if content.strip():
             batch.messages.append({"id": eid[:64], "seq": self.seq, "role": role, "kind": kind, "tool_name": tool, "content": content, "at": _now()})
             self.seq += 1
+
+
+class TaskError(RuntimeError):
+    """A problem with the task itself (bad repo, clone failure), reported to the user as-is."""
 
 
 class TaskRun:
@@ -210,8 +248,7 @@ class TaskRun:
         with open(os.path.join(workdir, "prompt.md"), "w") as fh:
             fh.write(self.task["prompt"])
         with open(os.path.join(workdir, "task.sh"), "w") as fh:
-            fh.write(TASK_SCRIPT)
-        os.chmod(workdir, 0o777)  # the sandbox runs as an unprivileged user
+            fh.write(AGENT_SCRIPT)
         profile = self.task.get("permission_profile", "edit")
         sandboxed = self.runner.cfg.backend == "docker"
         full = sandboxed or (self.runner.cfg.allow_full_local and profile == "full")
@@ -228,15 +265,8 @@ class TaskRun:
             codex_flags = "--full-auto"
         name = self.agent.get("name") or "Flockit AI developer"
         email = f"{self.agent.get('id', 'ai')}@agents.flockit.local"
-        repo = self.task.get("repo") or ""
-        host, _, path = repo.partition("/")
-        clone = self.runner.cfg.clone_url.format(repo=repo, host=host, path=path) if self.runner.cfg.clone_url else ""
         return {
             "FLOCKIT_TASK_ID": self.id,
-            "FLOCKIT_CLONE_URL": clone,
-            "FLOCKIT_REPO": repo,
-            "FLOCKIT_BASE": self.task.get("base_branch") or "",
-            "FLOCKIT_BRANCH": self.task["branch"],
             "FLOCKIT_TITLE": self.task["title"],
             "FLOCKIT_VENDOR": self.vendor,
             "FLOCKIT_MODEL": self.agent.get("model") or "",
@@ -247,6 +277,50 @@ class TaskRun:
             "GIT_COMMITTER_NAME": name,
             "GIT_COMMITTER_EMAIL": email,
         }
+
+    def _git(self, args: List[str], cwd: str, host: str, timeout: int = 600) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], cwd=cwd, env=git_env(host), capture_output=True, text=True, timeout=timeout)
+
+    def _checkout(self, workdir: str) -> str:
+        """Clone and branch, in the runner process (with credentials), before the sandbox starts."""
+        repo = self.task.get("repo") or ""
+        if not valid_repo(repo):
+            raise TaskError(f"Not a valid repository: {repo!r}")
+        host, _, path = repo.partition("/")
+        url = self.runner.cfg.clone_url.format(repo=repo, host=host, path=path) if self.runner.cfg.clone_url else f"https://{repo}.git"
+        target = os.path.join(workdir, "repo")
+        out = self._git(["clone", "--quiet", "--", url, target], workdir, host)
+        if out.returncode != 0:
+            raise TaskError(f"Could not clone {repo}" + ("" if git_token() else " (set GH_TOKEN on the runner for private repositories)"))
+        base = self.task.get("base_branch")
+        if base:
+            if base.startswith("-") or self._git(["checkout", "--quiet", base, "--"], target, host).returncode != 0:
+                raise TaskError(f"Base branch {base} not found")
+        self.control["base"] = self._git(["rev-parse", "--abbrev-ref", "HEAD"], target, host).stdout.strip()
+        branch = self.task["branch"]
+        if self._git(["checkout", "--quiet", "-b", branch], target, host).returncode != 0:
+            raise TaskError(f"Could not create branch {branch}")
+        self.control["start"] = self._git(["rev-parse", "HEAD"], target, host).stdout.strip()
+        # The sandbox runs as an unprivileged user that must be able to write the checkout.
+        for root, dirs, files in os.walk(workdir):
+            for name in dirs + files:
+                try:
+                    os.chmod(os.path.join(root, name), 0o777 if name in dirs else 0o666)
+                except OSError:
+                    pass
+        os.chmod(workdir, 0o777)
+        return host
+
+    def _publish(self, workdir: str, host: str) -> None:
+        """Count the agent's commits and push them, from the runner process, after the sandbox is gone."""
+        target = os.path.join(workdir, "repo")
+        start = self.control.get("start", "")
+        count = self._git(["rev-list", "--count", f"{start}..HEAD"], target, host).stdout.strip() or "0"
+        self.control["commits"] = count
+        if count != "0" and git_token() and host.split(":")[0].lower() in token_hosts():
+            pushed = self._git(["push", "--quiet", "-u", "origin", self.task["branch"]], target, host)
+            if pushed.returncode == 0:
+                self.control["pushed"] = "1"
 
     def _command(self, workdir: str, env: Dict[str, str]) -> tuple[List[str], Dict[str, str]]:
         if self.runner.cfg.backend == "local":
@@ -272,8 +346,10 @@ class TaskRun:
     def execute(self) -> None:
         workdir = tempfile.mkdtemp(prefix="flockit-task-")
         status, result, error, pr_url, cost = "failed", None, None, None, None
+        host = ""
         try:
             env = self._prepare(workdir)
+            host = self._checkout(workdir)
             cmd, proc_env = self._command(workdir, env)
             repo_root = "/work/repo" if self.runner.cfg.backend == "docker" else os.path.join(workdir, "repo")
             if isinstance(self.converter, Converter):
@@ -329,6 +405,8 @@ class TaskRun:
                     error = "Timed out after 60 minutes"
                     break
             code = self.proc.wait(timeout=60)
+            if not cancelled and not error:
+                self._publish(workdir, host)
             outcome = self.batch.result or {}
             self.flush_batch()
             summary = outcome.get("result") if isinstance(outcome, dict) else None
@@ -345,7 +423,7 @@ class TaskRun:
                     if not pr_url:
                         result += f"\n\nPushed branch `{self.task['branch']}`."
                 elif self.control.get("commits", "0") != "0":
-                    result += "\n\nChanges were committed in the sandbox but not pushed: set GH_TOKEN on the runner."
+                    result += "\n\nChanges were committed but not pushed: set GH_TOKEN on the runner (and list the host in FLOCKIT_RUNNER_GIT_HOSTS)."
                 else:
                     result += "\n\nNo code changes."
             else:
@@ -356,9 +434,11 @@ class TaskRun:
                         "(from `claude setup-token`), for Claude Code; OPENAI_API_KEY for Codex. Then restart the runner."
                     )
             self.send([self._event("session.end", end_reason="completed" if status == "succeeded" else "error")])
+        except TaskError as exc:
+            error = str(exc)
         except Exception as exc:  # noqa: BLE001
-            error = f"The runner failed to run this task: {type(exc).__name__}: {exc}"
-            log.write(error)
+            error = f"The runner failed to run this task: {type(exc).__name__}"
+            log.write(f"{error}: {exc}")
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
             if error or status == "succeeded":
@@ -402,10 +482,10 @@ class Runner:
 
     def open_pr(self, task: Dict[str, Any], base: Optional[str], summary: str) -> Optional[str]:
         """Open a pull request on GitHub for the pushed branch. Only the runner talks to GitHub."""
-        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        token = git_token()
         repo = task.get("repo") or ""
         host, _, path = repo.partition("/")
-        if not token or not path:
+        if not token or not path or not valid_repo(repo) or host.lower().split(":")[0] not in token_hosts():
             return None
         api = "https://api.github.com" if host == "github.com" else f"https://{host}/api/v3"
         agent = (task.get("agent") or {}).get("name", "An AI developer")

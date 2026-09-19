@@ -31,7 +31,8 @@ def start_script(task_id: str, title: str, workdir: str, prompt: str, claude: st
         f"cd {shlex.quote(workdir)} || exit 1\n"
         f"export FLOCKIT_TASK_ID={shlex.quote(task_id)}\n"
         f"printf '\\033[1mFlockit task:\\033[0m %s\\n\\n' {shlex.quote(title)}\n"
-        f"exec {shlex.quote(claude)} \"$(cat {shlex.quote(str(prompt_file))})\"\n"
+        # --setting-sources user: ignore the repository's own .claude settings for this run.
+        f"exec {shlex.quote(claude)} --setting-sources user \"$(cat {shlex.quote(str(prompt_file))})\"\n"
     )
     script.chmod(0o700)
     return script

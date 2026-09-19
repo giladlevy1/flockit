@@ -33,6 +33,30 @@ router = APIRouter(tags=["workflows"])
 MAX_WEBHOOK_BYTES = 256 * 1024
 
 
+class _Budget:
+    """Deliveries per workflow per hour, in process memory (one app container)."""
+
+    def __init__(self) -> None:
+        self.hits: dict[str, list[float]] = {}
+
+    def allow(self, key: str) -> bool:
+        import time
+
+        from flockit_server.settings import get_settings
+
+        now_s = time.monotonic()
+        recent = [t for t in self.hits.get(key, []) if now_s - t < 3600]
+        if len(recent) >= get_settings().webhook_rate_per_hour:
+            self.hits[key] = recent
+            return False
+        recent.append(now_s)
+        self.hits[key] = recent
+        return True
+
+
+_webhook_budget = _Budget()
+
+
 def next_run(cron: str, tz: str, after: Optional[datetime] = None) -> datetime:
     zone = ZoneInfo(tz)
     base = (after or runs.now()).astimezone(zone)
@@ -155,15 +179,25 @@ async def _load(db: AsyncSession, user: User, workflow_id: uuid.UUID) -> Workflo
     return wf
 
 
+async def _may_change(db: AsyncSession, user: User, wf: Workflow) -> None:
+    """Admins change any workflow; a lead only workflows whose current assignee they could assign to."""
+    _can_manage(user)
+    if user.role != Role.admin and not await runs.assignable(db, user, wf.assignee):
+        raise HTTPException(403, "This workflow sends work to someone outside your teams")
+
+
 async def _apply(db: AsyncSession, user: User, wf: Workflow, body: WorkflowIn) -> None:
     assignee = await db.get(User, body.assignee_id)
     if assignee is None or not await runs.assignable(db, user, assignee):
         raise HTTPException(403, "You cannot assign work to that person")
+    repo = runs.validate_repo(body.repo, for_ai=assignee.kind == UserKind.ai)
+    if not repo:
+        raise HTTPException(422, "A workflow needs a repository")
     wf.name = body.name.strip()
     wf.description = (body.description or "").strip() or None
     wf.prompt_template = body.prompt_template
-    wf.repo = body.repo.strip()
-    wf.base_branch = (body.base_branch or "").strip() or None
+    wf.repo = repo
+    wf.base_branch = runs.validate_branch(body.base_branch)
     wf.assignee_id = assignee.id
     wf.mode = body.mode
     wf.permission_profile = body.permission_profile
@@ -185,6 +219,9 @@ async def list_workflows(user: User = Depends(current_user), db: AsyncSession = 
     rows = (
         await db.execute(select(Workflow).where(Workflow.org_id == user.org_id).order_by(Workflow.name))
     ).scalars().unique().all()
+    if user.role != Role.admin:
+        # Only workflows that send work to people (or AI developers) this person can see.
+        rows = [wf for wf in rows if await runs.assignable(db, user, wf.assignee)]
     return [await _out(db, wf) for wf in rows]
 
 
@@ -208,7 +245,10 @@ async def create_workflow(
 
 @router.get("/api/workflows/{workflow_id}", response_model=WorkflowOut)
 async def get_workflow(workflow_id: uuid.UUID, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
-    return await _out(db, await _load(db, user, workflow_id))
+    wf = await _load(db, user, workflow_id)
+    if user.role != Role.admin and not await runs.assignable(db, user, wf.assignee):
+        raise HTTPException(404, "Workflow not found")
+    return await _out(db, wf)
 
 
 @router.put("/api/workflows/{workflow_id}", response_model=WorkflowOut)
@@ -219,8 +259,8 @@ async def update_workflow(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _can_manage(user)
     wf = await _load(db, user, workflow_id)
+    await _may_change(db, user, wf)
     await _apply(db, user, wf, body)
     url = None
     if body.webhook_enabled and not wf.webhook_secret_hash:
@@ -235,8 +275,8 @@ async def update_workflow(
 async def rotate_webhook_secret(
     workflow_id: uuid.UUID, request: Request, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)
 ):
-    _can_manage(user)
     wf = await _load(db, user, workflow_id)
+    await _may_change(db, user, wf)
     secret, wf.webhook_secret_hash = _new_secret()
     wf.webhook_enabled = True
     await runs.audit(db, user.org_id, user, "workflow.webhook_rotated", "workflow", wf.id)
@@ -246,8 +286,8 @@ async def rotate_webhook_secret(
 
 @router.delete("/api/workflows/{workflow_id}", status_code=204)
 async def delete_workflow(workflow_id: uuid.UUID, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
-    _can_manage(user)
     wf = await _load(db, user, workflow_id)
+    await _may_change(db, user, wf)
     await runs.audit(db, user.org_id, user, "workflow.deleted", "workflow", wf.id, {"name": wf.name})
     await db.delete(wf)
     await db.commit()
@@ -330,12 +370,17 @@ async def webhook(secret: str, request: Request, db: AsyncSession = Depends(get_
     ).scalar_one_or_none()
     if wf is None:
         raise HTTPException(404, "Not found")
-    body = await request.body()
-    if len(body) > MAX_WEBHOOK_BYTES:
-        raise HTTPException(413, "Payload too large")
+    if not _webhook_budget.allow(str(wf.id)):
+        raise HTTPException(429, "Too many deliveries for this workflow; try again later")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_WEBHOOK_BYTES:
+            raise HTTPException(413, "Payload too large")
+        chunks.append(chunk)
     try:
-        payload = json.loads(body or b"{}")
-    except ValueError as exc:
+        payload = json.loads(b"".join(chunks) or b"{}")
+    except (ValueError, RecursionError) as exc:
         raise HTTPException(400, "Body must be JSON") from exc
     if not isinstance(payload, dict):
         payload = {"body": payload}

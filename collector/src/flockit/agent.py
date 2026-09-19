@@ -48,7 +48,10 @@ def claude_binary(cfg: config.Config) -> Optional[str]:
 
 
 def headless_command(claude: str, prompt: str, profile: str) -> List[str]:
-    cmd = [claude, "-p", prompt, "--output-format", "json"]
+    # --setting-sources user: the repository's own .claude settings (hooks, permissions) are
+    # ignored for Flockit-started runs, so a task can never point a laptop at a repo that
+    # runs commands through its project settings.
+    cmd = [claude, "-p", prompt, "--output-format", "json", "--setting-sources", "user"]
     if profile == "read_only":
         cmd += ["--permission-mode", "plan"]
     else:
@@ -101,6 +104,7 @@ class Agent:
             if not claude:
                 raise workspace.WorkspaceError("Claude Code is not installed on this machine (claude not found)")
             workdir = workspace.prepare(task.get("repo"), task.get("base_branch"), task["branch"], task_id)
+            log.write(f"task {task_id[:8]} in {workdir}")
             if task.get("interactive"):
                 script = launch.start_script(task_id, task["title"], workdir, task["prompt"], claude)
                 if launch.open_terminal(script):
