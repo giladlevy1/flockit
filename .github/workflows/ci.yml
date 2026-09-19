@@ -65,10 +65,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t flockit:ci .
       - name: Smoke test the compose stack
         run: |
-          docker compose up -d
+          docker compose up -d --build
           for i in $(seq 1 60); do curl -fsS http://localhost:8080/api/health && break; sleep 2; done
           curl -fsS http://localhost:8080/api/setup | grep needs_setup
           curl -fsS http://localhost:8080/ | grep -q '<div id="root">'

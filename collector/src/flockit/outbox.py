@@ -1,6 +1,10 @@
 """A local, append-only buffer so a down server never loses events or blocks a session.
 
-Every event is written here first and removed only after the server accepts it.
+Every event is written here first and removed only after the server accepts it:
+a flush reads a snapshot, sends it, and then deletes exactly the events that were
+acknowledged. A flush killed mid-send (laptop sleep, shutdown) loses nothing; at
+worst an event is sent twice, which the server ignores by ``event_id``.
+
 The lock is held for file operations only, never across a network call, so a
 slow server cannot stall a second Claude Code session's hook.
 """
@@ -11,7 +15,7 @@ import contextlib
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, Iterable, Iterator, List
 
 from flockit import config
 
@@ -83,21 +87,21 @@ def append(event: Dict[str, Any]) -> None:
         fh.flush()
 
 
-def take() -> List[Dict[str, Any]]:
-    """Remove and return every buffered event. Callers must ``restore`` what they fail to send."""
+def snapshot() -> List[Dict[str, Any]]:
+    """Every buffered event, oldest first. Nothing is removed."""
+    if not _path().exists():
+        return []
     with _locked() as fh:
-        events = _read(fh)
-        if events:
-            _write(fh, [])
-        return events
+        return _read(fh)
 
 
-def restore(events: List[Dict[str, Any]]) -> None:
-    """Put unsent events back in front of anything appended while we were sending."""
-    if not events:
+def remove(event_ids: Iterable[str]) -> None:
+    """Delete delivered events, keeping anything appended since the snapshot."""
+    done = set(event_ids)
+    if not done:
         return
     with _locked() as fh:
-        _write(fh, events + _read(fh))
+        _write(fh, [e for e in _read(fh) if e.get("event_id") not in done])
 
 
 def pending() -> int:

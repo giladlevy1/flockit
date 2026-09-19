@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flockit_server import ratelimit
 from flockit_server.db import get_db
 from flockit_server.deps import COOKIE_NAME, current_user
 from flockit_server.models import LoginSession, Organization, Role, User
@@ -68,10 +69,21 @@ async def setup(body: SetupIn, response: Response, db: AsyncSession = Depends(ge
 
 
 @router.post("/auth/login")
-async def login(body: LoginIn, response: Response, db: AsyncSession = Depends(get_db)) -> dict:
-    user = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+async def login(body: LoginIn, request: Request, response: Response, db: AsyncSession = Depends(get_db)) -> dict:
+    client = request.client.host if request.client else "unknown"
+    wait = ratelimit.by_email.retry_after(body.email) or ratelimit.by_client.retry_after(client)
+    if wait:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many failed sign-ins. Try again in a few minutes.",
+            headers={"Retry-After": str(wait)},
+        )
+    user = (await db.execute(select(User).where(User.email == body.email).limit(1))).scalar_one_or_none()
     if not verify_password(user.password_hash if user else None, body.password) or user is None or not user.is_active:
+        ratelimit.by_email.fail(body.email)
+        ratelimit.by_client.fail(client)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong email or password")
+    ratelimit.by_email.reset(body.email)
     await _start_login(db, response, user)
     return {"ok": True}
 
@@ -95,10 +107,13 @@ async def me(user: User = Depends(current_user), db: AsyncSession = Depends(get_
 
 @router.post("/auth/password")
 async def change_password(
-    body: PasswordChange, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+    body: PasswordChange, request: Request, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)
 ) -> dict:
     if not verify_password(user.password_hash, body.current_password):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current password is wrong")
     user.password_hash = hash_password(body.new_password)
+    # Sign out every other browser: a stolen cookie must not outlive a password change.
+    current = hash_token(request.cookies.get(COOKIE_NAME, ""))
+    await db.execute(delete(LoginSession).where(LoginSession.user_id == user.id, LoginSession.token_hash != current))
     await db.commit()
     return {"ok": True}

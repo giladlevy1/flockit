@@ -96,11 +96,37 @@ def test_large_backlog_is_batched(server):
 def test_outbox_is_bounded():
     for i in range(outbox.MAX_EVENTS + 5):
         outbox.append(_event(i))
-    outbox.restore([])  # no-op
-    events = outbox.take()
-    outbox.restore(events)
+    outbox.remove(["e0"])  # any rewrite enforces the cap
     assert outbox.pending() == outbox.MAX_EVENTS
-    assert outbox.take()[-1]["event_id"] == "e%d" % (outbox.MAX_EVENTS + 4)
+    assert outbox.snapshot()[-1]["event_id"] == "e%d" % (outbox.MAX_EVENTS + 4)
+
+
+def test_events_survive_a_flush_killed_mid_send(server, monkeypatch):
+    cfg = config.Config(server_url=server.url, token="t")
+    for i in range(3):
+        outbox.append(_event(i))
+
+    def killed(*args, **kwargs):
+        raise KeyboardInterrupt  # stands in for the process dying during the request
+
+    monkeypatch.setattr(transport, "send", killed)
+    with pytest.raises(KeyboardInterrupt):
+        transport.flush(cfg)
+    assert outbox.pending() == 3
+
+
+def test_events_appended_during_a_flush_are_kept(server, monkeypatch):
+    cfg = config.Config(server_url=server.url, token="t")
+    outbox.append(_event(1))
+    real_send = transport.send
+
+    def send_and_append(c, batch):
+        outbox.append(_event(2))  # another session's hook writes while we send
+        return real_send(c, batch)
+
+    monkeypatch.setattr(transport, "send", send_and_append)
+    transport.flush(cfg)
+    assert [e["event_id"] for e in outbox.snapshot()] == ["e2"]
 
 
 def test_outbox_and_config_are_private(configured, flockit_home):

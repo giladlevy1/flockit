@@ -89,3 +89,30 @@ async def test_security_headers(admin):
     csp = r.headers["content-security-policy"]
     assert "default-src 'self'" in csp and "connect-src 'self'" in csp
     assert r.headers["x-frame-options"] == "DENY"
+
+
+async def test_login_is_throttled_after_repeated_failures(admin, client_factory):
+    c = client_factory()
+    for _ in range(10):
+        r = await c.post("/api/auth/login", json={"email": "ada@acme.dev", "password": "wrong-guess"})
+        assert r.status_code == 401
+    r = await c.post("/api/auth/login", json={"email": "ada@acme.dev", "password": "password-1"})
+    assert r.status_code == 429
+    assert int(r.headers["retry-after"]) > 0
+
+
+async def test_password_change_signs_out_other_browsers(admin, client_factory):
+    other = client_factory()
+    await other.post("/api/auth/login", json={"email": "ada@acme.dev", "password": "password-1"})
+    assert (await other.get("/api/auth/me")).status_code == 200
+    r = await admin.post("/api/auth/password", json={"current_password": "password-1", "new_password": "password-2"})
+    assert r.status_code == 200
+    assert (await admin.get("/api/auth/me")).status_code == 200  # the browser that changed it stays in
+    assert (await other.get("/api/auth/me")).status_code == 401
+
+
+async def test_admin_password_reset_signs_the_user_out(admin, make_user):
+    dev = await make_user("Dan Dev")
+    assert (await dev.get("/api/auth/me")).status_code == 200
+    await admin.patch("/api/users/" + dev.user_id, json={"password": "password-9"})
+    assert (await dev.get("/api/auth/me")).status_code == 401

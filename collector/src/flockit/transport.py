@@ -63,16 +63,14 @@ def flush(cfg: config.Config) -> int:
     422 means the server will never accept that batch, so it is dropped rather
     than retried forever.
     """
-    events = outbox.take()
+    events = outbox.snapshot()
     sent = 0
     for start in range(0, len(events), BATCH_SIZE):
         batch = events[start : start + BATCH_SIZE]
         result = send(cfg, batch)
         if result.ok:
             sent += len(batch)
-            continue
-        if result.status in (400, 413, 422):
-            continue
-        outbox.restore(events[start:])
-        break
+        elif result.status not in (400, 413, 422):
+            break  # keep this batch and everything after it for the next attempt
+        outbox.remove(e.get("event_id") for e in batch)
     return sent

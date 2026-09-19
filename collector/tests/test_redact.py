@@ -155,6 +155,11 @@ class TestReadableValuesSurvive:
             "claude-opus-5",
             "claude-sonnet-5[1m]",
             "https://github.com/acme/api/issues/42",
+            "feature/ENG-123-add-login-and-OAuth2-refresh-flow",
+            "fix/handle-utf8-in-CSVExportService-for-large-files",
+            "dependabot/npm_and_yarn/web/vite-8.3.0",
+            "users/gilad.levy/PLAT-431-flaky-e2e-on-safari-17",
+            "claude-haiku-4-5-20251001",
         ],
     )
     def test_unchanged(self, text):
@@ -198,13 +203,24 @@ class TestTaskRef:
             ("#42", "#42"),
             ("https://github.com/acme/api/issues/42", "https://github.com/acme/api/issues/42"),
             ("https://acme.atlassian.net/browse/ENG-9?token=abc#comment", "https://acme.atlassian.net/browse/ENG-9"),
-            ("https://user:pw@tracker.example.com/t/9", "https://tracker.example.com/t/9"),
+            ("https://user:pw@tracker.example.com/tickets/9", "https://tracker.example.com/tickets/9"),
+            ("https://gitlab.acme.dev/grp/sub/api/-/issues/7", "https://gitlab.acme.dev/grp/sub/api/-/issues/7"),
+            ("https://linear.app/acme/issue/ENG-5/login-is-broken", "https://linear.app/acme/issue/ENG-5"),
+            ("https://github.com/acme/api/pull/9/files", "https://github.com/acme/api/pull/9"),
         ],
     )
     def test_accepted(self, raw, expected):
         assert normalize_task_ref(raw) == expected
 
-    @pytest.mark.parametrize("raw", ["fix the login bug", "eng-123", "ftp://x/y", "", None, "javascript:alert(1)"])
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "fix the login bug", "eng-123", "ftp://x/y", "", None, "javascript:alert(1)",
+            "https://tracker.example.com/t/9",  # not a recognised ticket path
+            "https://example.com/some/random/page",
+            "https://jira.acme.com/browse/" + AWS_KEY,  # a secret where the ticket id should be
+        ],
+    )
     def test_rejected(self, raw):
         assert normalize_task_ref(raw) is None
 
@@ -251,3 +267,48 @@ class TestAllowlist:
 
     def test_non_string_values_dropped(self):
         assert redact_session({"repo": {"url": "x"}, "branch": ["main"], "agent_model": 5}) == {}
+
+
+class TestReviewRegressions:
+    """Bypasses found in review. Each must stay fixed."""
+
+    @pytest.mark.parametrize(
+        "text,secret",
+        [
+            ("fix/" + AWS_SECRET, AWS_SECRET),
+            ("feat/Xq3_9fKd-Lm2PzR8vT1nB4yW-hJ6cE0aS5uG7iO_Nk", "Xq3_9fKd-Lm2PzR8vT1nB4yW-hJ6cE0aS5uG7iO_Nk"),
+            ("fix/3f9a8c1d2e4b5a6978c0d1e2f3a4b5c6", "3f9a8c1d2e4b5a6978c0d1e2f3a4b5c6"),
+            ("deploy_" + "a1b2c3d4" * 5, "a1b2c3d4" * 5),
+            ("hotfix_" + STRIPE, STRIPE),
+            ("x_" + GH_PAT, GH_PAT),
+            ("xapp-1-A0123456789-" + "1234567890123-abcdefABCDEF0123456789", "abcdefABCDEF0123456789"),
+            ("xoxe-1-" + "My4xLTEtNTE0MDgxNTgzMTk3", "My4xLTEtNTE0MDgxNTgzMTk3"),
+        ],
+    )
+    def test_secret_shapes_are_redacted(self, text, secret):
+        assert secret not in scrub(text)
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "C:/Users/alice/work/secret-proj",
+            "C:\\Users\\alice\\work\\secret-proj",
+            "\\\\fileserver\\alice\\secret-proj",
+            "~/work/secret-proj",
+            "./secret-proj",
+        ],
+    )
+    def test_local_paths_never_include_the_username(self, path):
+        assert normalize_repo(path) == "secret-proj"
+
+    def test_adversarial_prompt_is_fast(self):
+        import time
+
+        from flockit import taskref
+
+        started = time.monotonic()
+        taskref.from_prompt("please fix https://jira.acme.com/" + "a-" * 8000 + "/browse/ENG-1")
+        taskref.from_prompt("http://" * 8000)
+        scrub("x" * 5000 + "TOKEN" + "a-" * 5000)
+        scrub(("TOKEN_" * 3000) + "=")
+        assert time.monotonic() - started < 1.0

@@ -48,6 +48,10 @@ async def database():
 
 @pytest.fixture(autouse=True)
 async def clean():
+    from flockit_server import ratelimit
+
+    ratelimit.by_email._hits.clear()
+    ratelimit.by_client._hits.clear()
     async with db.engine().begin() as conn:
         await conn.execute(text("TRUNCATE " + ", ".join(TABLES) + " CASCADE"))
     yield

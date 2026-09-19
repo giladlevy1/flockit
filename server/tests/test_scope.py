@@ -125,3 +125,20 @@ async def test_duplicate_email_and_team(org):
     assert r.status_code == 409
     r = await org["admin"].post("/api/teams", json={"name": "Platform"})
     assert r.status_code == 409
+
+
+async def test_developer_sees_no_team_roster(org):
+    teams = (await org["dev1"].get("/api/teams")).json()
+    assert [t["name"] for t in teams] == ["Platform"]
+    assert teams[0]["member_ids"] == [org["dev1"].user_id]
+
+
+async def test_lead_sees_only_shared_team_names(org):
+    # Dev One is also on Payments, which the lead is not part of.
+    await org["admin"].patch("/api/users/" + org["dev1"].user_id, json={"team_ids": [org["platform"]["id"], org["payments"]["id"]]})
+    users = {u["name"]: u for u in (await org["lead"].get("/api/users")).json()}
+    assert [t["name"] for t in users["Dev One"]["teams"]] == ["Platform"]
+    items = (await org["lead"].get("/api/sessions", params={"owner": org["dev1"].user_id})).json()["items"]
+    assert items[0]["owner"]["teams"] == ["Platform"]
+    admin_view = (await org["admin"].get("/api/sessions", params={"owner": org["dev1"].user_id})).json()["items"]
+    assert admin_view[0]["owner"]["teams"] == ["Payments", "Platform"]

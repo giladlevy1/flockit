@@ -116,6 +116,13 @@ export function ConnectPage({ me }: { me: Me }) {
               ) : (
                 <CodeBlock code={command} />
               )}
+              {me.user.role === "admin" && info.data && !info.data.public_url_configured && (
+                <p className="mt-3 rounded-lg bg-warn-soft px-3 py-2 text-xs leading-relaxed text-warn">
+                  Developers' machines will contact <span className="font-mono">{server}</span>, taken from the address
+                  you opened Flockit with. If they cannot reach that address, set <span className="font-mono">FLOCKIT_PUBLIC_URL</span>{" "}
+                  in <span className="font-mono">.env</span> and restart.
+                </p>
+              )}
             </Step>
             <Step n={3} title="Start a Claude Code session" done={!!arrived}>
               {!created ? (

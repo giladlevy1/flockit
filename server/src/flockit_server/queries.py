@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import Select, and_, case, distinct, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flockit_server.models import AgentSession, Origin, Outcome, Team, TeamMember, User
+from flockit_server.models import AgentSession, Origin, Outcome, Role, Team, TeamMember, User
 from flockit_server.schemas import OwnerOut, SessionOut
 from flockit_server.scope import visible_sessions, visible_users
 from flockit_server.settings import get_settings
@@ -98,15 +98,19 @@ def _status(row: AgentSession, cutoff: datetime) -> str:
     return "live" if row.last_seen_at >= cutoff else "idle"
 
 
-async def _team_names(db: AsyncSession, user_ids: set[uuid.UUID]) -> Dict[uuid.UUID, List[str]]:
+async def _team_names(db: AsyncSession, viewer: User, user_ids: set[uuid.UUID]) -> Dict[uuid.UUID, List[str]]:
+    """Team names per owner, limited to teams the viewer may see (all for admins, their own otherwise)."""
     if not user_ids:
         return {}
-    rows = await db.execute(
+    q = (
         select(TeamMember.user_id, Team.name)
         .join(Team, Team.id == TeamMember.team_id)
-        .where(TeamMember.user_id.in_(user_ids))
+        .where(TeamMember.user_id.in_(user_ids), Team.org_id == viewer.org_id)
         .order_by(Team.name)
     )
+    if viewer.role != Role.admin:
+        q = q.where(Team.id.in_(select(TeamMember.team_id).where(TeamMember.user_id == viewer.id)))
+    rows = await db.execute(q)
     out: Dict[uuid.UUID, List[str]] = {}
     for uid, name in rows:
         out.setdefault(uid, []).append(name)
@@ -160,7 +164,7 @@ async def list_sessions(
         select(AgentSession).where(*conds).order_by(live_first, order, AgentSession.id).limit(limit).offset(offset)
     )
     rows = (await db.execute(stmt)).scalars().unique().all()
-    teams = await _team_names(db, {r.human_owner_id for r in rows})
+    teams = await _team_names(db, viewer, {r.human_owner_id for r in rows})
     cutoff = _live_cutoff()
     return [to_out(r, teams, cutoff) for r in rows], total
 
@@ -171,7 +175,7 @@ async def get_session(db: AsyncSession, viewer: User, session_id: uuid.UUID) -> 
     ).scalar_one_or_none()
     if row is None:
         return None
-    teams = await _team_names(db, {row.human_owner_id})
+    teams = await _team_names(db, viewer, {row.human_owner_id})
     return to_out(row, teams, _live_cutoff())
 
 
@@ -297,7 +301,7 @@ async def facets(db: AsyncSession, viewer: User) -> Dict[str, Any]:
         await db.execute(select(User.id, User.name, User.email).where(visible_users(viewer)).order_by(User.name))
     ).all()
     team_q = select(Team.id, Team.name).where(Team.org_id == viewer.org_id).order_by(Team.name)
-    if viewer.role.value != "admin":
+    if viewer.role != Role.admin:
         team_q = team_q.where(Team.id.in_(select(TeamMember.team_id).where(TeamMember.user_id == viewer.id)))
     teams = (await db.execute(team_q)).all()
 

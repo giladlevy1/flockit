@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flockit_server.db import get_db
 from flockit_server.deps import current_user, require_admin
 from flockit_server.models import AgentSession, LoginSession, Role, Team, User
-from flockit_server.people import user_out
+from flockit_server.people import user_out, visible_team_ids
 from flockit_server.schemas import TeamIn, TeamOut, UserCreate, UserOut, UserUpdate
 from flockit_server.scope import visible_users
 from flockit_server.security import hash_password
@@ -62,7 +62,8 @@ async def list_users(user: User = Depends(current_user), db: AsyncSession = Depe
             .order_by(User.name)
         )
     ).all()
-    return [user_out(u, n or 0, last) for u, n, last in rows]
+    teams = visible_team_ids(user)
+    return [user_out(u, n or 0, last, teams) for u, n, last in rows]
 
 
 @router.post("/users", response_model=UserOut, status_code=201)
@@ -109,13 +110,19 @@ async def update_user(
         user.teams = await _teams(db, admin.org_id, body.team_ids)
     if body.password is not None:
         user.password_hash = hash_password(body.password)
+        # A reset means the old credentials are no longer trusted: sign them out everywhere.
+        await db.execute(LoginSession.__table__.delete().where(LoginSession.user_id == user.id))
     await db.commit()
     await db.refresh(user)
     return user_out(user)
 
 
-def _team_out(team: Team) -> TeamOut:
-    return TeamOut(id=team.id, name=team.name, member_ids=[m.id for m in team.members])
+def _team_out(team: Team, viewer: User | None = None) -> TeamOut:
+    """Members are listed only when the viewer may see them (admins and leads; a developer sees just themselves)."""
+    members = team.members
+    if viewer is not None and viewer.role == Role.developer:
+        members = [m for m in members if m.id == viewer.id]
+    return TeamOut(id=team.id, name=team.name, member_ids=[m.id for m in members])
 
 
 @router.get("/teams", response_model=List[TeamOut])
@@ -124,7 +131,7 @@ async def list_teams(user: User = Depends(current_user), db: AsyncSession = Depe
     teams = (await db.execute(q)).scalars().all()
     if user.role != Role.admin:
         teams = [t for t in teams if any(m.id == user.id for m in t.members)]
-    return [_team_out(t) for t in teams]
+    return [_team_out(t, user) for t in teams]
 
 
 @router.post("/teams", response_model=TeamOut, status_code=201)

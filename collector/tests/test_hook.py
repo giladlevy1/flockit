@@ -8,7 +8,9 @@ def _run(**data):
 
 
 def _events():
-    return outbox.take()
+    events = outbox.snapshot()
+    outbox.remove(e["event_id"] for e in events)
+    return events
 
 
 def test_unconfigured_collector_does_nothing(git_repo):
