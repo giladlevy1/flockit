@@ -17,7 +17,7 @@ async def post_events(
     who: CollectorIdentity = Depends(collector_identity),
     db: AsyncSession = Depends(get_db),
 ) -> IngestResult:
-    return await ingest(db, who.user, batch.events)
+    return await ingest(db, who.user, batch.events, who.run_id)
 
 
 @router.get("/whoami")

@@ -1,8 +1,9 @@
 """Database schema.
 
-M0 writes to organisation, user, team, auth tables, ``session`` and ``ingest_event``.
-``fact``, ``decision``, ``retrieval`` and ``workflow_run`` exist as schema only, so
-later milestones add behaviour without migrating existing data.
+Identity (organisation, user, team), sessions and their captured transcripts, and
+the work layer: tasks (``workflow_run``), workflows, machines that execute tasks
+(developer laptops and AI-developer runners) and the audit log. ``fact``,
+``decision`` and ``retrieval`` are schema only, for the memory milestones.
 
 Every row carries ``org_id``. M0 runs one organisation per deployment, but the
 column means a multi-tenant deployment later is a query change, not a rewrite.
@@ -19,6 +20,7 @@ from sqlalchemy import (
     ARRAY,
     BigInteger,
     Boolean,
+    Computed,
     DateTime,
     Enum,
     Float,
@@ -31,7 +33,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -67,6 +69,44 @@ class Role(str, enum.Enum):
 class Origin(str, enum.Enum):
     human = "human"  # a person started the session (the only value M0 writes)
     workflow = "workflow"  # reserved: a future workflow runner started it
+
+
+class UserKind(str, enum.Enum):
+    human = "human"
+    ai = "ai"  # an AI developer: a member of the org whose sessions run on a runner
+
+
+class DispatchMode(str, enum.Enum):
+    """What a person allows workflows to do on their machine."""
+
+    off = "off"  # never send me tasks
+    ask = "ask"  # offer tasks; I accept each one (default)
+    auto = "auto"  # workflows set to auto-start may start headless sessions without asking
+
+
+class RunMode(str, enum.Enum):
+    ask = "ask"  # the assignee accepts before anything runs
+    auto = "auto"  # starts headless if the assignee allows auto-start (always, for AI developers)
+
+
+class PermissionProfile(str, enum.Enum):
+    read_only = "read_only"  # plan mode: investigate and report, no edits
+    edit = "edit"  # may edit files; shell commands still need permission
+    full = "full"  # everything; only honoured inside runner sandboxes
+
+
+class RunStatus(str, enum.Enum):
+    offered = "offered"  # waiting for the assignee to accept
+    queued = "queued"  # ready for a machine to pick up
+    starting = "starting"  # claimed by a machine, preparing the workspace
+    running = "running"  # the agent session is live
+    succeeded = "succeeded"
+    failed = "failed"
+    declined = "declined"
+    cancelled = "cancelled"
+
+
+ACTIVE_RUN_STATUSES = (RunStatus.offered, RunStatus.queued, RunStatus.starting, RunStatus.running)
 
 
 class Outcome(str, enum.Enum):
@@ -124,6 +164,18 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = _created()
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    kind: Mapped[UserKind] = mapped_column(_enum(UserKind, "user_kind"), default=UserKind.human, server_default="human")
+    dispatch_mode: Mapped[DispatchMode] = mapped_column(
+        _enum(DispatchMode, "dispatch_mode"), default=DispatchMode.ask, server_default="ask"
+    )
+    # AI developers only
+    agent_vendor: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    agent_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    runner_pool: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    sponsor_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    instructions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     teams: Mapped[List["Team"]] = relationship(secondary="team_member", back_populates="members", lazy="selectin")
 
@@ -177,6 +229,11 @@ class ApiToken(Base):
     created_at: Mapped[datetime] = _created()
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Ephemeral tokens minted for one AI-developer task expire and are scoped to it.
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflow_run.id", ondelete="CASCADE"), nullable=True
+    )
 
 
 # --- Sessions (the only entity M0 writes) ------------------------------------
@@ -197,6 +254,10 @@ class AgentSession(Base):
     human_owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
     )
+    # Who did the work: the owner themselves, or an AI developer the owner sponsors.
+    actor_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     origin: Mapped[Origin] = mapped_column(_enum(Origin, "session_origin"), default=Origin.human)
     workflow_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("workflow_run.id", ondelete="SET NULL"), nullable=True
@@ -215,11 +276,57 @@ class AgentSession(Base):
     outcome: Mapped[Outcome] = mapped_column(_enum(Outcome, "session_outcome"), default=Outcome.unknown)
     end_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     turn_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    title: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)  # the first prompt, redacted
+    tokens_input: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    tokens_output: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    tokens_cache_read: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    tokens_cache_write: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    tool_calls: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    message_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    files_touched: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     collector_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    owner: Mapped[User] = relationship(lazy="joined", innerjoin=True)
+    owner: Mapped[User] = relationship(lazy="joined", innerjoin=True, foreign_keys=[human_owner_id])
+    actor: Mapped[Optional[User]] = relationship(lazy="joined", foreign_keys=[actor_id])
+
+
+class SessionMessage(Base):
+    """One transcript entry: a prompt, a reply, a tool call or a tool result. Redacted on
+    the developer's machine before it was sent. ``search`` is a generated full-text index."""
+
+    __tablename__ = "session_message"
+    __table_args__ = (
+        UniqueConstraint("session_id", "entry_id", name="uq_session_message_entry"),
+        Index("ix_session_message_search", "search", postgresql_using="gin"),
+        Index("ix_session_message_session_seq", "session_id", "seq"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("session.id", ondelete="CASCADE"))
+    entry_id: Mapped[str] = mapped_column(String(64))
+    seq: Mapped[int] = mapped_column(Integer)
+    role: Mapped[str] = mapped_column(String(16))  # user | assistant
+    kind: Mapped[str] = mapped_column(String(16))  # text | tool_use | tool_result
+    tool_name: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    search: Mapped[Optional[str]] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('simple', coalesce(content, ''))", persisted=True), nullable=True
+    )
+
+
+class SessionFile(Base):
+    """A file an agent edited or created, relative to the repository root."""
+
+    __tablename__ = "session_file"
+
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("session.id", ondelete="CASCADE"), primary_key=True
+    )
+    path: Mapped[str] = mapped_column(String(500), primary_key=True)
+    edits: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class IngestEvent(Base):
@@ -233,24 +340,145 @@ class IngestEvent(Base):
     received_at: Mapped[datetime] = _created()
 
 
-# --- Schema only in M0 --------------------------------------------------------
+# --- Work: tasks, workflows, machines ------------------------------------------
 
 
-class WorkflowRun(Base):
-    """Seam for a future workflow runner. Nothing writes here in M0, on purpose."""
+class Workflow(Base):
+    """A reusable definition: what to ask the agent, where, for whom, and when."""
 
-    __tablename__ = "workflow_run"
+    __tablename__ = "workflow"
 
     id: Mapped[uuid.UUID] = _pk()
     org_id: Mapped[uuid.UUID] = _org()
-    task_ref: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
-    status: Mapped[str] = mapped_column(String(32), default="pending")
-    triggered_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    name: Mapped[str] = mapped_column(String(160))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prompt_template: Mapped[str] = mapped_column(Text)
+    repo: Mapped[str] = mapped_column(String(300))
+    base_branch: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    assignee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"))
+    mode: Mapped[RunMode] = mapped_column(_enum(RunMode, "run_mode"), default=RunMode.ask)
+    permission_profile: Mapped[PermissionProfile] = mapped_column(
+        _enum(PermissionProfile, "permission_profile"), default=PermissionProfile.edit
+    )
+    schedule_cron: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    schedule_timezone: Mapped[str] = mapped_column(String(64), default="UTC", server_default="UTC")
+    next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    webhook_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    webhook_secret_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True)
+    webhook_filter: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    assignee: Mapped[User] = relationship(lazy="joined", foreign_keys=[assignee_id])
+
+
+class WorkflowRun(Base):
+    """A task: one unit of work for one assignee, from a workflow or assigned directly."""
+
+    __tablename__ = "workflow_run"
+    __table_args__ = (
+        Index("ix_run_org_created", "org_id", "created_at"),
+        Index("ix_run_assignee_status", "assignee_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    org_id: Mapped[uuid.UUID] = _org()
+    workflow_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflow.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(300), default="Task", server_default="Task")
+    prompt: Mapped[str] = mapped_column(Text, default="", server_default="")
+    repo: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    base_branch: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    branch: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    task_ref: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    assignee_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=True
+    )
+    mode: Mapped[RunMode] = mapped_column(_enum(RunMode, "run_mode"), default=RunMode.ask, server_default="ask")
+    permission_profile: Mapped[PermissionProfile] = mapped_column(
+        _enum(PermissionProfile, "permission_profile"), default=PermissionProfile.edit, server_default="edit"
+    )
+    status: Mapped[RunStatus] = mapped_column(
+        _enum(RunStatus, "run_status"), default=RunStatus.queued, server_default="queued"
+    )
+    trigger: Mapped[str] = mapped_column(String(32), default="manual", server_default="manual")
+    trigger_payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    triggered_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    machine_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("machine.id", ondelete="SET NULL"), nullable=True
+    )
+    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("session.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+    interactive: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    pr_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    assignee: Mapped[Optional[User]] = relationship(lazy="joined", foreign_keys=[assignee_id])
+    triggered_by: Mapped[Optional[User]] = relationship(lazy="joined", foreign_keys=[triggered_by_id])
+    workflow: Mapped[Optional[Workflow]] = relationship(lazy="joined", foreign_keys=[workflow_id])
+    machine: Mapped[Optional["Machine"]] = relationship(lazy="joined", foreign_keys=[machine_id])
+
+
+class Machine(Base):
+    """Something that executes tasks: a developer's laptop agent or an AI-developer runner."""
+
+    __tablename__ = "machine"
+
+    id: Mapped[uuid.UUID] = _pk()
+    org_id: Mapped[uuid.UUID] = _org()
+    kind: Mapped[str] = mapped_column(String(16))  # laptop | runner
+    name: Mapped[str] = mapped_column(String(200))
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    pool: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    token_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True)
+    token_prefix: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    platform: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    capabilities: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    capacity: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = _created()
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AuditEvent(Base):
+    """Who did what: dispatching work to people and agents must be traceable."""
+
+    __tablename__ = "audit_event"
+    __table_args__ = (Index("ix_audit_org_created", "org_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    org_id: Mapped[uuid.UUID] = _org()
+    actor_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    action: Mapped[str] = mapped_column(String(64))
+    target_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    target_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    detail: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = _created()
+
+
+# --- Schema only: the memory milestones ---------------------------------------
 
 
 class Fact(Base):

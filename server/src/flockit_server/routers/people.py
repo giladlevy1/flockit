@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flockit_server.db import get_db
 from flockit_server.deps import current_user, require_admin
-from flockit_server.models import AgentSession, LoginSession, Role, Team, User
+from flockit_server.models import AgentSession, LoginSession, Role, Team, User, UserKind
 from flockit_server.people import user_out, visible_team_ids
 from flockit_server.schemas import TeamIn, TeamOut, UserCreate, UserOut, UserUpdate
 from flockit_server.scope import visible_users
@@ -58,7 +58,7 @@ async def list_users(user: User = Depends(current_user), db: AsyncSession = Depe
         await db.execute(
             select(User, stats.c.n, stats.c.last)
             .outerjoin(stats, stats.c.human_owner_id == User.id)
-            .where(visible_users(user))
+            .where(visible_users(user), User.kind == UserKind.human)
             .order_by(User.name)
         )
     ).all()

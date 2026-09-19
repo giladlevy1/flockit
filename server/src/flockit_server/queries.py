@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import Select, and_, case, distinct, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flockit_server.models import AgentSession, Origin, Outcome, Role, Team, TeamMember, User
-from flockit_server.schemas import OwnerOut, SessionOut
+from flockit_server.models import AgentSession, Origin, Outcome, Role, Team, TeamMember, User, UserKind, WorkflowRun
+from flockit_server.schemas import ActorOut, OwnerOut, SessionOut
 from flockit_server.scope import visible_sessions, visible_users
 from flockit_server.settings import get_settings
 
@@ -27,6 +27,8 @@ class Filters:
     status: List[str] = field(default_factory=list)
     origin: List[Origin] = field(default_factory=list)
     task_ref: Optional[str] = None
+    actor_kind: Optional[str] = None  # human | ai
+    task: Optional[uuid.UUID] = None
     q: Optional[str] = None
     since: Optional[datetime] = None
     until: Optional[datetime] = None
@@ -47,7 +49,7 @@ _SECONDS = func.extract("epoch", _END - AgentSession.started_at)
 def _conditions(viewer: User, f: Filters) -> list:
     conds: list = [visible_sessions(viewer)]
     if f.owner:
-        conds.append(AgentSession.human_owner_id.in_(f.owner))
+        conds.append(or_(AgentSession.human_owner_id.in_(f.owner), AgentSession.actor_id.in_(f.owner)))
     if f.team:
         conds.append(AgentSession.human_owner_id.in_(select(TeamMember.user_id).where(TeamMember.team_id.in_(f.team))))
     if f.repo:
@@ -73,6 +75,14 @@ def _conditions(viewer: User, f: Filters) -> list:
             conds.append(or_(*parts))
     if f.task_ref:
         conds.append(AgentSession.task_ref == f.task_ref)
+    if f.task:
+        conds.append(AgentSession.workflow_run_id == f.task)
+    if f.actor_kind in ("human", "ai"):
+        kind_ids = select(User.id).where(User.kind == UserKind(f.actor_kind))
+        if f.actor_kind == "human":
+            conds.append(or_(AgentSession.actor_id.is_(None), AgentSession.actor_id.in_(kind_ids)))
+        else:
+            conds.append(AgentSession.actor_id.in_(kind_ids))
     if f.since:
         conds.append(_END >= f.since)  # overlaps the window, not just started in it
     if f.until:
@@ -86,7 +96,9 @@ def _conditions(viewer: User, f: Filters) -> list:
                 AgentSession.branch.ilike(like),
                 AgentSession.task_ref.ilike(like),
                 AgentSession.agent_model.ilike(like),
+                AgentSession.title.ilike(like),
                 AgentSession.human_owner_id.in_(owner_match),
+                AgentSession.actor_id.in_(owner_match),
             )
         )
     return conds
@@ -117,11 +129,32 @@ async def _team_names(db: AsyncSession, viewer: User, user_ids: set[uuid.UUID]) 
     return out
 
 
-def to_out(row: AgentSession, teams: Dict[uuid.UUID, List[str]], cutoff: datetime) -> SessionOut:
+async def _tasks(db: AsyncSession, rows) -> Dict[uuid.UUID, dict]:
+    ids = {r.workflow_run_id for r in rows if r.workflow_run_id}
+    if not ids:
+        return {}
+    found = await db.execute(select(WorkflowRun.id, WorkflowRun.title, WorkflowRun.status).where(WorkflowRun.id.in_(ids)))
+    return {i: {"id": i, "title": t, "status": st.value} for i, t, st in found}
+
+
+def to_out(
+    row: AgentSession, teams: Dict[uuid.UUID, List[str]], cutoff: datetime, tasks: Optional[Dict[uuid.UUID, dict]] = None
+) -> SessionOut:
     end = row.ended_at or row.last_seen_at
+    actor = row.actor if row.actor is not None and row.actor_id != row.human_owner_id else None
     return SessionOut(
         id=row.id,
         owner=OwnerOut(id=row.owner.id, name=row.owner.name, email=row.owner.email, teams=teams.get(row.owner.id, [])),
+        actor=ActorOut(id=actor.id, name=actor.name, kind=actor.kind.value) if actor else None,
+        title=row.title,
+        task=(tasks or {}).get(row.workflow_run_id) if row.workflow_run_id else None,
+        tokens_input=row.tokens_input or 0,
+        tokens_output=row.tokens_output or 0,
+        tokens_cache_read=row.tokens_cache_read or 0,
+        tokens_cache_write=row.tokens_cache_write or 0,
+        tool_calls=row.tool_calls or 0,
+        message_count=row.message_count or 0,
+        files_touched=row.files_touched or 0,
         origin=row.origin,
         agent_vendor=row.agent_vendor,
         agent_version=row.agent_version,
@@ -165,8 +198,9 @@ async def list_sessions(
     )
     rows = (await db.execute(stmt)).scalars().unique().all()
     teams = await _team_names(db, viewer, {r.human_owner_id for r in rows})
+    tasks = await _tasks(db, rows)
     cutoff = _live_cutoff()
-    return [to_out(r, teams, cutoff) for r in rows], total
+    return [to_out(r, teams, cutoff, tasks) for r in rows], total
 
 
 async def get_session(db: AsyncSession, viewer: User, session_id: uuid.UUID) -> Optional[SessionOut]:
@@ -176,7 +210,7 @@ async def get_session(db: AsyncSession, viewer: User, session_id: uuid.UUID) -> 
     if row is None:
         return None
     teams = await _team_names(db, viewer, {row.human_owner_id})
-    return to_out(row, teams, _live_cutoff())
+    return to_out(row, teams, _live_cutoff(), await _tasks(db, [row]))
 
 
 async def summary(db: AsyncSession, viewer: User, f: Filters) -> Dict[str, Any]:
@@ -194,6 +228,11 @@ async def summary(db: AsyncSession, viewer: User, f: Filters) -> Dict[str, Any]:
                 func.count().filter(live),
                 func.count(distinct(AgentSession.human_owner_id)).filter(live),
                 func.coalesce(func.sum(AgentSession.turn_count), 0),
+                func.coalesce(func.sum(AgentSession.tokens_input + AgentSession.tokens_cache_read + AgentSession.tokens_cache_write), 0),
+                func.coalesce(func.sum(AgentSession.tokens_output), 0),
+                func.coalesce(func.sum(AgentSession.tool_calls), 0),
+                func.count().filter(AgentSession.actor_id.in_(select(User.id).where(User.kind == UserKind.ai))),
+                func.count().filter(AgentSession.workflow_run_id.is_not(None)),
             ).where(*conds)
         )
     ).one()
@@ -287,6 +326,11 @@ async def summary(db: AsyncSession, viewer: User, f: Filters) -> Dict[str, Any]:
         "live_sessions": totals[4],
         "live_people": totals[5],
         "turns": int(totals[6]),
+        "tokens_input": int(totals[7]),
+        "tokens_output": int(totals[8]),
+        "tool_calls": int(totals[9]),
+        "ai_sessions": int(totals[10]),
+        "task_sessions": int(totals[11]),
         "outcomes": {o.value: outcomes.get(o.value, 0) for o in Outcome},
         "by_agent": by_agent,
         "top_repos": top_repos,

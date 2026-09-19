@@ -43,16 +43,51 @@ class IngestSession(BaseModel):
     origin: Origin = Origin.human
     start_source: Optional[str] = Field(default=None, max_length=32)
     end_reason: Optional[str] = Field(default=None, max_length=64)
+    task_id: Optional[uuid.UUID] = None
+
+
+class TranscriptMessage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1, max_length=64)
+    seq: int = Field(ge=0, le=10_000_000)
+    role: Literal["user", "assistant"]
+    kind: Literal["text", "tool_use", "tool_result"]
+    tool_name: Optional[str] = Field(default=None, max_length=80)
+    content: str = Field(max_length=100_000)
+    at: datetime
+
+
+class TranscriptUsage(BaseModel):
+    input: int = Field(default=0, ge=0, le=10**10)
+    output: int = Field(default=0, ge=0, le=10**10)
+    cache_read: int = Field(default=0, ge=0, le=10**10)
+    cache_write: int = Field(default=0, ge=0, le=10**10)
+
+
+class TranscriptFile(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    edits: int = Field(default=1, ge=0, le=100_000)
+
+
+class TranscriptIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: Optional[str] = Field(default=None, max_length=300)
+    messages: List[TranscriptMessage] = Field(default=[], max_length=500)
+    usage: TranscriptUsage = TranscriptUsage()
+    files: List[TranscriptFile] = Field(default=[], max_length=500)
 
 
 class IngestEventIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     event_id: uuid.UUID
-    type: Literal["session.start", "session.activity", "session.update", "session.end"]
+    type: Literal["session.start", "session.activity", "session.update", "session.end", "session.transcript"]
     occurred_at: datetime
     collector_version: Optional[str] = Field(default=None, max_length=32)
     session: IngestSession
+    transcript: Optional[TranscriptIn] = None
 
 
 class IngestBatch(BaseModel):
@@ -77,6 +112,8 @@ class UserOut(BaseModel):
     id: uuid.UUID
     email: str
     name: str
+    kind: str = "human"
+    dispatch_mode: str = "ask"
     role: Role
     is_active: bool
     teams: List[TeamRef]
@@ -191,9 +228,18 @@ class OwnerOut(BaseModel):
     teams: List[str]
 
 
+class ActorOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: str
+
+
 class SessionOut(BaseModel):
     id: uuid.UUID
     owner: OwnerOut
+    actor: Optional[ActorOut] = None
+    title: Optional[str] = None
+    task: Optional[dict] = None
     origin: Origin
     agent_vendor: str
     agent_version: Optional[str]
@@ -210,6 +256,13 @@ class SessionOut(BaseModel):
     outcome: Outcome
     end_reason: Optional[str]
     turn_count: int
+    tokens_input: int = 0
+    tokens_output: int = 0
+    tokens_cache_read: int = 0
+    tokens_cache_write: int = 0
+    tool_calls: int = 0
+    message_count: int = 0
+    files_touched: int = 0
 
 
 class SessionPage(BaseModel):

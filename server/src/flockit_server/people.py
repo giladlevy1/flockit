@@ -20,6 +20,8 @@ def user_out(
         id=user.id,
         email=user.email,
         name=user.name,
+        kind=user.kind.value,
+        dispatch_mode=user.dispatch_mode.value,
         role=user.role,
         is_active=user.is_active,
         teams=sorted((TeamRef(id=t.id, name=t.name) for t in teams), key=lambda t: t.name),

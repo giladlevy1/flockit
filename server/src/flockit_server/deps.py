@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flockit_server.db import get_db
@@ -59,6 +59,7 @@ async def require_admin(user: User = Depends(current_user)) -> User:
 class CollectorIdentity:
     user: User
     token_id: object
+    run_id: object = None  # set for an AI developer's per-task token
 
 
 async def collector_identity(request: Request, db: AsyncSession = Depends(get_db)) -> CollectorIdentity:
@@ -70,7 +71,11 @@ async def collector_identity(request: Request, db: AsyncSession = Depends(get_db
         await db.execute(
             select(ApiToken, User)
             .join(User, User.id == ApiToken.user_id)
-            .where(ApiToken.token_hash == hash_token(token.strip()), ApiToken.revoked_at.is_(None))
+            .where(
+                ApiToken.token_hash == hash_token(token.strip()),
+                ApiToken.revoked_at.is_(None),
+                or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > _now()),
+            )
         )
     ).first()
     if found is None or not found[1].is_active:
@@ -80,4 +85,4 @@ async def collector_identity(request: Request, db: AsyncSession = Depends(get_db
     if api_token.last_used_at is None or now - api_token.last_used_at > timedelta(minutes=1):
         await db.execute(update(ApiToken).where(ApiToken.id == api_token.id).values(last_used_at=now))
         await db.commit()
-    return CollectorIdentity(user=user, token_id=api_token.id)
+    return CollectorIdentity(user=user, token_id=api_token.id, run_id=api_token.run_id)

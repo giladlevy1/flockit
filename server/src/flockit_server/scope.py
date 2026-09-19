@@ -31,11 +31,16 @@ def visible_users(user: User) -> ColumnElement[bool]:
 
 
 def visible_sessions(user: User) -> ColumnElement[bool]:
-    """A WHERE clause over ``AgentSession`` rows this user may see."""
+    """A WHERE clause over ``AgentSession`` rows this user may see: sessions they own
+    (including AI-developer work they assigned) and, for leads, sessions owned or
+    performed by anyone on their teams (AI developers included)."""
     if user.role == Role.admin:
         return AgentSession.org_id == user.org_id
     if user.role == Role.lead:
+        mates = _teammates(user)
         return (AgentSession.org_id == user.org_id) & or_(
-            AgentSession.human_owner_id == user.id, AgentSession.human_owner_id.in_(_teammates(user))
+            AgentSession.human_owner_id == user.id,
+            AgentSession.human_owner_id.in_(mates),
+            AgentSession.actor_id.in_(mates),
         )
     return AgentSession.human_owner_id == user.id

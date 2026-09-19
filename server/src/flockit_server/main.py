@@ -12,7 +12,19 @@ from sqlalchemy import text
 
 from flockit_server import __version__, db
 from flockit_server.queries import sweep_abandoned
-from flockit_server.routers import auth, connect, ingest, people, sessions, tokens
+from flockit_server.routers import (
+    agents,
+    auth,
+    connect,
+    ingest,
+    machines,
+    people,
+    search,
+    sessions,
+    tasks,
+    tokens,
+    workflows,
+)
 from flockit_server.settings import get_settings
 
 log = logging.getLogger("flockit")
@@ -26,18 +38,33 @@ async def _sweeper() -> None:
                 n = await sweep_abandoned(session)
                 if n:
                     log.info("marked %d inactive session(s) abandoned", n)
+            n = await machines.fail_stuck_tasks()
+            if n:
+                log.info("failed %d stuck task(s)", n)
         except Exception:  # noqa: BLE001 - keep sweeping; the next run may succeed
-            log.exception("abandoned-session sweep failed")
+            log.exception("maintenance sweep failed")
         await asyncio.sleep(interval)
+
+
+async def _scheduler() -> None:
+    """Start scheduled workflows. Checks every 20 seconds; cron has minute resolution."""
+    while True:
+        try:
+            n = await workflows.run_due_schedules()
+            if n:
+                log.info("started %d scheduled workflow(s)", n)
+        except Exception:  # noqa: BLE001
+            log.exception("workflow scheduler failed")
+        await asyncio.sleep(20)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    task = asyncio.create_task(_sweeper()) if app.state.run_sweeper else None
+    tasks = [asyncio.create_task(_sweeper()), asyncio.create_task(_scheduler())] if app.state.run_sweeper else []
     try:
         yield
     finally:
-        if task:
+        for task in tasks:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
@@ -55,7 +82,7 @@ def create_app(run_sweeper: bool = True) -> FastAPI:
     )
     app.state.run_sweeper = run_sweeper
 
-    for module in (auth, ingest, sessions, people, tokens, connect):
+    for module in (auth, ingest, search, sessions, people, tokens, connect, tasks, workflows, machines, agents):
         app.include_router(module.router)
 
     @app.get("/api/health", tags=["meta"])

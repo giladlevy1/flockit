@@ -22,8 +22,9 @@ from flockit_server.main import create_app  # noqa: E402
 from flockit_server.settings import get_settings  # noqa: E402
 
 TABLES = [
-    "ingest_event", "retrieval", "decision", "fact", "session", "workflow_run", "api_token",
-    "login_session", "team_member", "team", '"user"', "organization",
+    "audit_event", "session_message", "session_file", "ingest_event", "retrieval", "decision", "fact",
+    "session", "workflow_run", "workflow", "machine", "api_token", "login_session", "team_member", "team",
+    '"user"', "organization",
 ]
 
 

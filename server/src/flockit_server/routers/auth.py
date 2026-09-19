@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flockit_server import ratelimit
 from flockit_server.db import get_db
 from flockit_server.deps import COOKIE_NAME, current_user
-from flockit_server.models import LoginSession, Organization, Role, User
+from flockit_server.models import DispatchMode, LoginSession, Organization, Role, User
 from flockit_server.people import user_out
 from flockit_server.routers.connect import safe_url
+from flockit_server.runs import audit
 from flockit_server.schemas import LoginIn, MeOut, OrgOut, PasswordChange, SetupIn
 from flockit_server.scope import SCOPE_LABELS
 from flockit_server.security import hash_password, hash_token, new_login_token, verify_password
@@ -122,3 +125,19 @@ async def change_password(
     await db.execute(delete(LoginSession).where(LoginSession.user_id == user.id, LoginSession.token_hash != current))
     await db.commit()
     return {"ok": True}
+
+
+class MeUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    dispatch_mode: Optional[DispatchMode] = None
+
+
+@router.patch("/auth/me", response_model=MeOut)
+async def update_me(body: MeUpdate, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> MeOut:
+    if body.name is not None:
+        user.name = body.name.strip()
+    if body.dispatch_mode is not None and body.dispatch_mode != user.dispatch_mode:
+        await audit(db, user.org_id, user, "user.dispatch_mode", "user", user.id, {"mode": body.dispatch_mode.value})
+        user.dispatch_mode = body.dispatch_mode
+    await db.commit()
+    return await me(user, db)

@@ -1,0 +1,211 @@
+"""Tasks and workflows: assignment rules, lifecycle, triggers."""
+
+from datetime import timedelta
+
+import pytest
+from sqlalchemy import update
+
+from flockit_server import db
+from flockit_server.models import Workflow
+from flockit_server.routers.workflows import run_due_schedules
+
+
+@pytest.fixture
+async def team(admin, make_user):
+    platform = (await admin.post("/api/teams", json={"name": "Platform"})).json()
+    lead = await make_user("Lee Lead", "lead", [platform["id"]])
+    dev = await make_user("Dev One", "developer", [platform["id"]])
+    other = await make_user("Dev Two", "developer")
+    ai = (
+        await admin.post(
+            "/api/ai-developers",
+            json={"name": "Ada Bot", "agent_vendor": "claude-code", "agent_model": "claude-opus-5", "team_ids": [platform["id"]]},
+        )
+    ).json()
+    return {"admin": admin, "lead": lead, "dev": dev, "other": other, "ai": ai, "platform": platform}
+
+
+def task(assignee_id, **kw):
+    body = {"title": "Fix flaky login test", "prompt": "Make tests/login_test.py pass reliably.", "repo": "github.com/acme/api",
+            "assignee_id": assignee_id}
+    body.update(kw)
+    return body
+
+
+async def test_ai_developer_created_with_sponsor(team):
+    ai = team["ai"]
+    assert ai["sponsor"]["name"] == "Ada Admin"
+    assert ai["email"].endswith("@agents.flockit.local")
+    listed = (await team["dev"].get("/api/ai-developers")).json()
+    assert [a["name"] for a in listed] == ["Ada Bot"]
+    # AI developers do not appear among people and cannot sign in
+    names = [u["name"] for u in (await team["admin"].get("/api/users")).json()]
+    assert "Ada Bot" not in names
+
+
+async def test_only_admins_create_ai_developers(team):
+    r = await team["lead"].post("/api/ai-developers", json={"name": "Rogue"})
+    assert r.status_code == 403
+
+
+async def test_assignment_rules(team):
+    lead, dev, other, ai = team["lead"], team["dev"], team["other"], team["ai"]
+    assert (await lead.post("/api/tasks", json=task(dev.user_id))).status_code == 201  # teammate
+    assert (await lead.post("/api/tasks", json=task(other.user_id))).status_code == 403  # not on their team
+    assert (await dev.post("/api/tasks", json=task(dev.user_id))).status_code == 201  # self
+    assert (await dev.post("/api/tasks", json=task(ai["id"]))).status_code == 201  # delegate to AI
+    assert (await dev.post("/api/tasks", json=task(other.user_id))).status_code == 403
+    assert (await team["admin"].post("/api/tasks", json=task(other.user_id))).status_code == 201
+    no_repo = task(ai["id"], repo=None)
+    assert (await dev.post("/api/tasks", json=no_repo)).status_code == 422
+
+
+async def test_status_depends_on_assignee_and_mode(team):
+    lead, dev, ai = team["lead"], team["dev"], team["ai"]
+    r = (await lead.post("/api/tasks", json=task(dev.user_id))).json()
+    assert r["status"] == "offered" and r["branch"].startswith("flockit/")
+    r = (await lead.post("/api/tasks", json=task(dev.user_id, mode="auto"))).json()
+    assert r["status"] == "offered"  # the developer has not allowed auto-start
+    await dev.patch("/api/auth/me", json={"dispatch_mode": "auto"})
+    r = (await lead.post("/api/tasks", json=task(dev.user_id, mode="auto"))).json()
+    assert r["status"] == "queued"
+    r = (await lead.post("/api/tasks", json=task(ai["id"]))).json()
+    assert r["status"] == "queued"
+
+
+async def test_accept_decline_complete(team):
+    lead, dev = team["lead"], team["dev"]
+    t = (await lead.post("/api/tasks", json=task(dev.user_id))).json()
+    assert (await lead.post(f"/api/tasks/{t['id']}/accept", json={})).status_code == 403  # not the assignee
+    r = (await dev.post(f"/api/tasks/{t['id']}/accept", json={"interactive": True})).json()
+    assert r["status"] == "queued" and r["interactive"] is True
+    assert (await dev.post(f"/api/tasks/{t['id']}/accept", json={})).status_code == 409
+    r = (await dev.post(f"/api/tasks/{t['id']}/complete")).json()
+    assert r["status"] == "succeeded"
+
+    t2 = (await lead.post("/api/tasks", json=task(dev.user_id))).json()
+    r = (await dev.post(f"/api/tasks/{t2['id']}/decline", json={"reason": "on vacation"})).json()
+    assert r["status"] == "declined" and r["error"] == "on vacation"
+    retried = (await lead.post(f"/api/tasks/{t2['id']}/retry")).json()
+    assert retried["status"] == "offered" and retried["id"] != t2["id"] and retried["trigger"] == "retry"
+
+
+async def test_cancel_permissions(team):
+    lead, dev, other = team["lead"], team["dev"], team["other"]
+    t = (await lead.post("/api/tasks", json=task(dev.user_id))).json()
+    assert (await other.post(f"/api/tasks/{t['id']}/cancel")).status_code == 404  # cannot even see it
+    r = await lead.post(f"/api/tasks/{t['id']}/cancel")
+    assert r.json()["status"] == "cancelled"
+
+
+async def test_task_visibility(team):
+    lead, dev, other, admin, ai = team["lead"], team["dev"], team["other"], team["admin"], team["ai"]
+    await lead.post("/api/tasks", json=task(dev.user_id))
+    await admin.post("/api/tasks", json=task(other.user_id))
+    await dev.post("/api/tasks", json=task(ai["id"]))
+    assert (await admin.get("/api/tasks")).json()["total"] == 3
+    assert (await lead.get("/api/tasks")).json()["total"] == 2  # dev's task and the AI task (AI dev is on the team)
+    assert (await dev.get("/api/tasks")).json()["total"] == 2  # assigned to them, and the one they delegated
+    assert (await other.get("/api/tasks")).json()["total"] == 1
+    mine = (await dev.get("/api/tasks", params={"view": "mine"})).json()
+    assert mine["total"] == 1 and mine["counts"] == {"offered": 1}
+
+
+async def test_inbox(team):
+    await team["lead"].post("/api/tasks", json=task(team["dev"].user_id))
+    inbox = (await team["dev"].get("/api/tasks/inbox")).json()
+    assert inbox["offered"] == 1 and inbox["machines"] == [] and inbox["dispatch_mode"] == "ask"
+
+
+# --- Workflows -------------------------------------------------------------------
+
+
+def workflow(assignee_id, **kw):
+    body = {
+        "name": "Triage new bug",
+        "prompt_template": "Investigate: {{payload.issue.title}}\n\n{{payload.issue.body}}",
+        "repo": "github.com/acme/api",
+        "assignee_id": assignee_id,
+        "mode": "auto",
+    }
+    body.update(kw)
+    return body
+
+
+async def test_workflow_crud_and_permissions(team):
+    lead, dev, ai = team["lead"], team["dev"], team["ai"]
+    assert (await dev.post("/api/workflows", json=workflow(ai["id"]))).status_code == 403
+    r = await lead.post("/api/workflows", json=workflow(ai["id"], schedule_cron="0 9 * * 1-5", schedule_timezone="Asia/Jerusalem"))
+    assert r.status_code == 201, r.text
+    wf = r.json()
+    assert wf["next_run_at"] is not None and wf["webhook_url"] is None
+    bad = await lead.post("/api/workflows", json=workflow(ai["id"], schedule_cron="every tuesday"))
+    assert bad.status_code == 422
+    bad = await lead.post("/api/workflows", json=workflow(ai["id"], schedule_timezone="Mars/Olympus"))
+    assert bad.status_code == 422
+    assert (await lead.post("/api/workflows", json=workflow(team["other"].user_id))).status_code == 403
+    updated = await lead.put(f"/api/workflows/{wf['id']}", json=workflow(ai["id"], name="Renamed"))
+    assert updated.json()["name"] == "Renamed" and updated.json()["next_run_at"] is None
+    assert (await lead.delete(f"/api/workflows/{wf['id']}")).status_code == 204
+
+
+async def test_run_now_renders_payload(team):
+    lead, ai = team["lead"], team["ai"]
+    wf = (await lead.post("/api/workflows", json=workflow(ai["id"]))).json()
+    r = await lead.post(
+        f"/api/workflows/{wf['id']}/run",
+        json={"payload": {"issue": {"title": "Login broken", "body": "500 on /login", "html_url": "https://github.com/acme/api/issues/9"}}},
+    )
+    t = r.json()
+    assert r.status_code == 201
+    assert t["title"] == "Triage new bug: Login broken"
+    assert t["prompt"] == "Investigate: Login broken\n\n500 on /login"
+    assert t["task_ref"] == "https://github.com/acme/api/issues/9"
+    assert t["workflow"]["name"] == "Triage new bug" and t["status"] == "queued"
+
+
+async def test_webhook_trigger_with_filter(team, client_factory):
+    lead, ai = team["lead"], team["ai"]
+    wf = (
+        await lead.post(
+            "/api/workflows",
+            json=workflow(ai["id"], webhook_enabled=True, webhook_filter={"path": "action", "equals": "opened"}),
+        )
+    ).json()
+    url = wf["webhook_url"]
+    assert url.startswith("http://flockit.test/api/hooks/whk_")
+    path = url.replace("http://flockit.test", "")
+    anon = client_factory()
+    skipped = await anon.post(path, json={"action": "closed", "issue": {"title": "x"}})
+    assert skipped.json() == {"accepted": False, "reason": "filter did not match"}
+    hit = await anon.post(path, json={"action": "opened", "issue": {"title": "Crash on save"}})
+    assert hit.status_code == 202 and hit.json()["accepted"] is True
+    assert (await anon.post("/api/hooks/whk_not-a-real-secret", json={})).status_code == 404
+    assert (await anon.post(path, content=b"not json", headers={"content-type": "application/json"})).status_code == 400
+    # Rotating the secret invalidates the old URL
+    rotated = (await lead.post(f"/api/workflows/{wf['id']}/webhook-secret")).json()
+    assert rotated["webhook_url"] != url
+    assert (await anon.post(path, json={"action": "opened"})).status_code == 404
+    tasks = (await lead.get("/api/tasks", params={"workflow": wf["id"]})).json()
+    assert tasks["total"] == 1 and tasks["items"][0]["trigger"] == "webhook"
+
+
+async def test_schedules_start_due_workflows(team):
+    lead, ai = team["lead"], team["ai"]
+    wf = (await lead.post("/api/workflows", json=workflow(ai["id"], schedule_cron="*/5 * * * *"))).json()
+    assert await run_due_schedules() == 0  # not due yet
+    async with db.sessionmaker()() as s:
+        await s.execute(update(Workflow).values(next_run_at=Workflow.next_run_at - timedelta(hours=1)))
+        await s.commit()
+    assert await run_due_schedules() == 1
+    assert await run_due_schedules() == 0  # next_run_at moved forward
+    t = (await lead.get("/api/tasks", params={"workflow": wf["id"]})).json()["items"][0]
+    assert t["trigger"] == "schedule" and t["prompt"].startswith("Investigate: ")
+
+
+async def test_audit_log_records_dispatch(team):
+    await team["lead"].post("/api/tasks", json=task(team["dev"].user_id))
+    log = (await team["admin"].get("/api/audit")).json()["items"]
+    actions = [e["action"] for e in log]
+    assert "task.created" in actions and "ai_developer.created" in actions
+    assert (await team["lead"].get("/api/audit")).status_code == 403
