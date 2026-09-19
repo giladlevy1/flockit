@@ -6,13 +6,15 @@ This module is the security boundary of the collector. It works in two layers:
    Each field has a validator that normalises the value or rejects it. Anything
    not on the list is dropped, so a new field in Claude Code's hook payload can
    never leak by accident.
+   (The conversation itself travels separately, through ``conversation.py``,
+   which runs every piece of text through the same ``scrub()``.)
 2. **Scrub.** Every surviving string is passed through ``scrub()``, which
    replaces anything that looks like a credential with ``[REDACTED]``. This is
    defence in depth: the allowlisted fields should never contain secrets, but a
    branch name or a task reference is free text typed by a human.
 
-Prompts, transcripts, file contents, command output and file paths are never
-part of the payload. They are not on the allowlist, so they cannot be sent.
+Session metadata never contains prompts, file paths or environment variables:
+they are not on the allowlist, so they cannot be sent that way.
 """
 
 from __future__ import annotations
@@ -287,6 +289,13 @@ def normalize_task_ref(value: Any) -> Optional[str]:
     return None
 
 
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def _uuid(value: Any) -> Optional[str]:
+    return value.lower() if isinstance(value, str) and _UUID.match(value.lower()) else None
+
+
 def _enum(*allowed: str) -> Callable[[Any], Optional[str]]:
     def check(value: Any) -> Optional[str]:
         return value if isinstance(value, str) and value in allowed else None
@@ -306,6 +315,7 @@ SESSION_FIELDS: Dict[str, Callable[[Any], Optional[str]]] = {
     "origin": _enum("human", "workflow"),
     "start_source": _enum("startup", "resume", "clear", "compact"),
     "end_reason": _identifier,
+    "task_id": _uuid,  # the Flockit task this session was started for (FLOCKIT_TASK_ID)
 }
 
 EVENT_TYPES = ("session.start", "session.activity", "session.update", "session.end")

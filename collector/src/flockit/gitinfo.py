@@ -37,3 +37,7 @@ def repo_and_branch(cwd: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     # symbolic-ref works on a fresh repo with no commits; it fails when detached.
     branch = _git(cwd, "symbolic-ref", "--short", "-q", "HEAD")
     return remote or top, branch
+
+
+def toplevel(cwd: Optional[str]) -> Optional[str]:
+    return _git(cwd, "rev-parse", "--show-toplevel") if cwd else None

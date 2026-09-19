@@ -242,7 +242,7 @@ class TestAllowlist:
         # Adding a field to the wire format must be a deliberate, reviewed change.
         assert set(SESSION_FIELDS) == {
             "external_id", "agent_vendor", "agent_version", "agent_model", "repo", "branch",
-            "task_ref", "origin", "start_source", "end_reason",
+            "task_ref", "origin", "start_source", "end_reason", "task_id",
         }
 
     def test_identifier_fields_drop_rather_than_scrub(self):

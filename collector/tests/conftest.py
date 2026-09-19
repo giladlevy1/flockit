@@ -12,6 +12,7 @@ def flockit_home(tmp_path, monkeypatch):
     monkeypatch.setenv("FLOCKIT_HOME", str(tmp_path / "flockit-home"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
     monkeypatch.setenv("FLOCKIT_SYNC", "1")
+    monkeypatch.setenv("FLOCKIT_NO_SERVICE", "1")  # never install a real launchd/systemd service from tests
     monkeypatch.delenv("FLOCKIT_TASK_REF", raising=False)
     return tmp_path / "flockit-home"
 

@@ -34,6 +34,9 @@ def log_path() -> Path:
 class Config:
     server_url: str
     token: str
+    # Absolute path to the claude binary, recorded at install time: the background
+    # agent runs under launchd/systemd with a minimal PATH.
+    claude_path: Optional[str] = None
 
     @property
     def ingest_url(self) -> str:
@@ -43,7 +46,7 @@ class Config:
 def load() -> Optional[Config]:
     try:
         data = json.loads(config_path().read_text())
-        return Config(server_url=data["server_url"], token=data["token"])
+        return Config(server_url=data["server_url"], token=data["token"], claude_path=data.get("claude_path"))
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -52,7 +55,7 @@ def save(cfg: Config) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"server_url": cfg.server_url, "token": cfg.token}, indent=2))
+    tmp.write_text(json.dumps({"server_url": cfg.server_url, "token": cfg.token, "claude_path": cfg.claude_path}, indent=2))
     os.chmod(tmp, 0o600)  # the token is a credential
     tmp.replace(path)
 
