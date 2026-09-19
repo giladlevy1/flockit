@@ -1,0 +1,13 @@
+node_modules/
+.venv/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+.DS_Store
+*.egg-info/
+web/tsconfig.tsbuildinfo
+server/src/flockit_server/static/
+server/src/flockit_server/collector_dist/

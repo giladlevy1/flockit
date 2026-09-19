@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flockit"
+version = "0.1.0"
+description = "Flockit collector: see every Claude Code session across your org, on your own server."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+# Zero runtime dependencies, on purpose: the collector installs offline from your
+# own Flockit server and has nothing to audit beyond the standard library.
+dependencies = []
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development",
+]
+
+[project.urls]
+Homepage = "https://github.com/giladlevy1/flockit"
+
+[project.scripts]
+flockit = "flockit.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flockit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "W"]
+ignore = ["E501", "B008"]

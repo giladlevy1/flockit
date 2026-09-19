@@ -1,0 +1,83 @@
+"""Request authentication.
+
+Two credentials exist:
+- A **login cookie** for people using the web UI. Mutating requests must also send
+  ``X-Flockit-Request: 1``; browsers cannot add that header cross-origin without a
+  CORS preflight, which this server never grants, so it doubles as CSRF protection.
+- A **collector token** (``Authorization: Bearer flk_...``) for ingest only. Each
+  token belongs to one person, which is how every session gets its human owner.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from flockit_server.db import get_db
+from flockit_server.models import ApiToken, LoginSession, Role, User
+from flockit_server.security import hash_token
+
+COOKIE_NAME = "flockit_session"
+CSRF_HEADER = "x-flockit-request"
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+async def current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in")
+    if request.method not in SAFE_METHODS and request.headers.get(CSRF_HEADER) != "1":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing X-Flockit-Request header")
+    row = (
+        await db.execute(
+            select(User)
+            .join(LoginSession, LoginSession.user_id == User.id)
+            .where(LoginSession.token_hash == hash_token(token), LoginSession.expires_at > _now())
+        )
+    ).scalar_one_or_none()
+    if row is None or not row.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired")
+    return row
+
+
+async def require_admin(user: User = Depends(current_user)) -> User:
+    if user.role != Role.admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admins only")
+    return user
+
+
+@dataclass
+class CollectorIdentity:
+    user: User
+    token_id: object
+
+
+async def collector_identity(request: Request, db: AsyncSession = Depends(get_db)) -> CollectorIdentity:
+    header = request.headers.get("authorization", "")
+    scheme, _, token = header.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing collector token")
+    found: Optional[tuple[ApiToken, User]] = (
+        await db.execute(
+            select(ApiToken, User)
+            .join(User, User.id == ApiToken.user_id)
+            .where(ApiToken.token_hash == hash_token(token.strip()), ApiToken.revoked_at.is_(None))
+        )
+    ).first()
+    if found is None or not found[1].is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or revoked collector token")
+    api_token, user = found
+    now = _now()
+    if api_token.last_used_at is None or now - api_token.last_used_at > timedelta(minutes=1):
+        await db.execute(update(ApiToken).where(ApiToken.id == api_token.id).values(last_used_at=now))
+        await db.commit()
+    return CollectorIdentity(user=user, token_id=api_token.id)

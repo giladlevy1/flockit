@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  collector:
+    name: Collector (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e "collector[dev]"
+      - run: ruff check collector
+      - run: cd collector && pytest -q
+
+  server:
+    name: Server
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flockit
+          POSTGRES_PASSWORD: flockit
+          POSTGRES_DB: flockit
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flockit" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      FLOCKIT_TEST_DATABASE_URL: postgresql+asyncpg://flockit:flockit@localhost:5432/flockit_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e "server[dev]"
+      - run: ruff check server
+      - run: cd server && pytest -q
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: cd web && npm ci && npm run build
+
+  image:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t flockit:ci .
+      - name: Smoke test the compose stack
+        run: |
+          docker compose up -d
+          for i in $(seq 1 60); do curl -fsS http://localhost:8080/api/health && break; sleep 2; done
+          curl -fsS http://localhost:8080/api/setup | grep needs_setup
+          curl -fsS http://localhost:8080/ | grep -q '<div id="root">'
+          curl -fsS -o /dev/null http://localhost:8080/downloads/flockit-0.1.0-py3-none-any.whl
+          docker compose down -v

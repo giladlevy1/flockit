@@ -1,0 +1,45 @@
+# Flockit: `docker compose up -d`, then open http://localhost:8080
+#
+# Settings come from .env next to this file (see .env.example). Every value has
+# a working default, so the stack also starts with no .env at all.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flockit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flockit}
+      POSTGRES_DB: flockit
+    volumes:
+      - flockit-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flockit -d flockit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [flockit]
+    # No ports published: the database is reachable only by the app container.
+
+  flockit:
+    build: .
+    image: flockit:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      FLOCKIT_DATABASE_URL: postgresql+asyncpg://flockit:${POSTGRES_PASSWORD:-flockit}@db:5432/flockit
+      # The URL developers' machines use to reach this server. Used in the install command.
+      FLOCKIT_PUBLIC_URL: ${FLOCKIT_PUBLIC_URL:-}
+      FLOCKIT_SECURE_COOKIES: ${FLOCKIT_SECURE_COOKIES:-false}
+      FLOCKIT_ABANDON_AFTER_HOURS: ${FLOCKIT_ABANDON_AFTER_HOURS:-6}
+    ports:
+      - "${FLOCKIT_PORT:-8080}:8080"
+    networks: [flockit]
+
+volumes:
+  flockit-db:
+
+networks:
+  flockit:
