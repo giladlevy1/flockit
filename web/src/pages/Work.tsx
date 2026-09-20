@@ -74,6 +74,9 @@ export function WorkPage({ me }: { me: Me }) {
   });
   const facets = useQuery({ queryKey: ["facets"], queryFn: () => api<Facets>("/api/sessions/facets"), refetchInterval: 60_000 });
 
+  // A brand new organisation has nothing to filter, sort or page through. Until the first
+  // session arrives, the page is the setup, not an empty table with controls above it.
+  const empty = !filters.active && (list.data?.total ?? 0) === 0 && (facets.data?.vendors.length ?? 0) === 0;
   const anyLive = (list.data?.items ?? []).some((s) => s.status === "live");
   const now = useNow(anyLive || !!filters.selected);
   const rangeLabel = RANGES.find((r) => r.value === state.range)?.label ?? "";
@@ -87,21 +90,27 @@ export function WorkPage({ me }: { me: Me }) {
   return (
     <div>
       <PageHeader
-        title={scope === "mine" ? "Your work" : scope === "teams" ? "Your teams" : "All work"}
-        sub="Every coding session, human and AI, with the full conversation."
+        title={empty ? `Welcome, ${me.user.name.split(" ")[0]}` : scope === "mine" ? "Your work" : scope === "teams" ? "Your teams" : "All work"}
+        sub={
+          empty
+            ? "Four steps and your SDLC runs on this: every session recorded, work that survives a closed laptop, and agents that test what they write."
+            : "Every coding session in your SDLC, human and AI, with the full conversation behind it."
+        }
         actions={
-          <>
+          empty ? null : (
             <Button variant="primary" onClick={() => setNewTask(true)}>
               <Plus className="size-4" /> New task
             </Button>
-          </>
+          )
         }
       />
 
-      {!me.onboarded && <GettingStarted me={me} />}
+      {(!me.onboarded || empty) && <GettingStarted me={me} />}
       <Attention me={me} />
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      {empty && <Waiting />}
+
+      <div className={"mb-3 flex flex-wrap items-center gap-2" + (empty ? " hidden" : "")}>
         {canSeeOthers && (
           <Segmented
             value={scope}
@@ -145,7 +154,7 @@ export function WorkPage({ me }: { me: Me }) {
         </Button>
       </div>
 
-      {tab === "insights" ? (
+      {empty ? null : tab === "insights" ? (
         <div className="space-y-3">
           {summary.data ? (
             <>
@@ -203,6 +212,28 @@ export function WorkPage({ me }: { me: Me }) {
       )}
       <NewTaskDialog me={me} open={newTask} onClose={() => setNewTask(false)} />
     </div>
+  );
+}
+
+/**
+ * The pause between finishing the setup and seeing the point of it. Rather than an empty
+ * table, say exactly what will happen and show that we are watching for it.
+ */
+function Waiting() {
+  return (
+    <Card className="mb-6 flex flex-col items-center gap-2 px-6 py-12 text-center">
+      <span className="flex items-center gap-2 text-sm font-medium">
+        <Spinner className="size-4" /> Waiting for the first session
+      </span>
+      <p className="max-w-lg text-sm leading-relaxed text-muted">
+        Run <span className="font-mono text-ink">claude</span> on a connected machine and it appears here within
+        seconds — the prompts, the commands, the files it touched and what it cost. Everything else in Flockit is built
+        on top of that record.
+      </p>
+      <Link to="/connect" className="mt-2 text-sm text-accent-ink hover:underline">
+        Connect a machine
+      </Link>
+    </Card>
   );
 }
 

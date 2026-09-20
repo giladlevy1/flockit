@@ -1,12 +1,12 @@
-import { EyeOff, Server, ShieldCheck } from "lucide-react";
+import { Database, MoonStar, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Logo } from "./Logo";
 
 const POINTS = [
-  { icon: Server, title: "Runs in your network", text: "One compose file. No hosted service, no account elsewhere." },
-  { icon: ShieldCheck, title: "Redacted on the laptop", text: "Secrets are stripped before anything leaves a developer's machine." },
-  { icon: EyeOff, title: "No telemetry, ever", text: "Flockit never phones home. Not even to count installs." },
+  { icon: MoonStar, title: "Sessions that never stop", text: "A closed laptop hands the work to your own AI developer, mid-task." },
+  { icon: Database, title: "Agents that test their work", text: "Each one develops against your schema and your data, not a guess." },
+  { icon: ShieldCheck, title: "Your network, your data", text: "One compose file. Secrets stripped on the laptop. No telemetry, ever." },
 ];
 
 export function AuthShell({ title, sub, children }: { title: string; sub: ReactNode; children: ReactNode }) {
@@ -18,10 +18,11 @@ export function AuthShell({ title, sub, children }: { title: string; sub: ReactN
         </div>
         <div className="my-auto max-w-md">
           <h2 className="text-[34px] leading-[1.15] font-semibold tracking-tight">
-            Every coding session, human and AI, <span className="text-[#f07a45]">in one place.</span>
+            The control plane for an <span className="text-[#f07a45]">AI-native SDLC.</span>
           </h2>
           <p className="mt-4 text-[15px] leading-relaxed text-white/65">
-            See which people and which agents are working on what, on which repo, with which model, and how it ended.
+            Your team already writes code with agents. This is the layer underneath: every session captured, work
+            handed between people and AI developers, and nothing lost when a machine goes away.
           </p>
           <ul className="mt-10 space-y-5">
             {POINTS.map(({ icon: Icon, title, text }) => (

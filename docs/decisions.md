@@ -58,6 +58,16 @@ followed from one observation — an agent that cannot run what it wrote is gues
 | 31 | **Slack is inbound-only on the server**; results are posted by the runner with its own bot token. | Keeps "the server makes no outbound calls" literally true, which is the claim every security review starts with. | If an org wants notifications without running a runner. |
 | 32 | **Home is your work, not a dashboard.** Numbers moved behind a tab that only leads and admins see; tasks, workflows, search and people moved out of the top bar. | A developer opening the page every morning wants their sessions and anything waiting on them. Five nav items taught them the product had five pages of chores. | If usage shows people hunting for what moved. |
 
+## 0.4 — the SDLC keeps running
+
+| # | Decision | Why | Revisit when |
+|---|---|---|---|
+| 33 | **A closed laptop hands the session to the person's own AI developer**, rather than ending it. | It is the most common way an agent session dies, and the context was expensive to build. Everything needed was already there: an open session and a machine that stopped reporting. | If agent vendors make a session portable between machines directly. |
+| 34 | **The handover starts from a snapshot the laptop pushes**, on a ref outside `refs/heads`, taken with a temporary index and `commit-tree`. | Continuing from the branch tip would throw away exactly the work that mattered — what they had not committed. Using plumbing means `git status`, HEAD, branches and the stash are untouched, so it is safe to run every minute on someone's machine. | If a vendor-neutral "workspace state" format appears. |
+| 35 | **One personal AI developer per person**, created by the switch itself. | A handover must never have to decide who gets the work, and a feature that needs a setup meeting does not get turned on. | — |
+| 36 | **Every condition is a condition to refuse**: opt-in, every machine quiet, a pushed snapshot, recent work, one at a time, once. | A handover starts a paid agent on someone's repository at a moment they did not choose. Being conservative is what makes it acceptable to leave on. | When there is real usage data about false handovers. |
+| 37 | **The empty organisation is a setup page, not an empty table.** | The first screen decides whether anyone comes back. Filters and pagination above zero rows teach nothing. | — |
+
 ## Open questions for the next milestone
 
 - Which real repos and which five teams run the first trial?

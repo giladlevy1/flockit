@@ -24,7 +24,7 @@ export function LoginPage() {
   });
 
   return (
-    <AuthShell title="Sign in" sub="Your organisation's Flockit, on your own server.">
+    <AuthShell title="Sign in" sub="Your organisation's SDLC, on your own server.">
       <form
         className="space-y-4"
         onSubmit={(e) => {

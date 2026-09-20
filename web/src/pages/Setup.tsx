@@ -22,7 +22,7 @@ export function SetupPage() {
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
-    <AuthShell title="Set up Flockit" sub="Create your organisation and the first admin account. This only happens once.">
+    <AuthShell title="Set up Flockit" sub="Create your organisation and the first admin account. Four minutes from here to an agent working on a real ticket.">
       <form
         className="space-y-4"
         onSubmit={(e) => {

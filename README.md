@@ -5,9 +5,10 @@
 <h1 align="center">Flockit</h1>
 
 <p align="center">
-  <b>The self-hosted control plane for an engineering org of people and AI developers.</b><br>
-  Every coding session — yours, your team's, your agents' — kept, searchable, and usable by the next one.<br>
-  Hand work to a teammate's Claude Code or to an AI developer that tests its own change against a real database.
+  <b>The self-hosted control plane for an AI-native SDLC.</b><br>
+  Your team already writes code with agents. Flockit is the layer underneath it:<br>
+  every session captured, work dispatched to people or AI developers, agents that test against real environments —<br>
+  and sessions that keep going when a laptop closes.
 </p>
 
 <p align="center">
@@ -17,7 +18,26 @@
   <img src="https://img.shields.io/badge/telemetry-none-1f8a70" alt="No telemetry">
 </p>
 
-![The Flockit R&D view: live sessions by people and AI developers, agent time by repo, model mix](docs/images/rnd-view.png)
+![Flockit: live sessions by people and AI developers, with what needs a decision at the top](docs/images/rnd-view.png)
+
+## The problem this solves
+
+Agents now write a large share of your code, and your SDLC has no idea. Sessions happen on
+laptops and disappear when they end. Nobody can search what was tried last month. Work
+cannot be handed between a person and an agent. Agents write code they have never run,
+so a human becomes the test suite. And when a laptop closes mid-task, the work is simply
+gone.
+
+Flockit is the infrastructure under that: **the same lifecycle your team already has —
+intake, build, test, review — with agents as first-class participants in it.**
+
+| Stage of the SDLC | What Flockit adds |
+|---|---|
+| **Intake** | Work arrives from a ticket, a schedule, a webhook or Slack and becomes a **task** for a person or an AI developer — with the same rules, the same audit trail, either way. |
+| **Build** | Every Claude Code session, on a laptop or in a sandbox, is captured live: prompts, commands, files, cost. If the machine goes away mid-task, **the session continues** on that person's own AI developer. |
+| **Test** | Each AI developer gets a **workbench**: your schema, your data shape, a customer's account. It runs the app and the tests against something real before a human reads a line. |
+| **Review** | The change arrives as a pull request with the whole session behind it — what was tried, what failed, what it cost. |
+| **Memory** | All of it stays searchable, and is available **inside the next session** over MCP, so the org stops solving the same problem twice. |
 
 ## Start here
 
@@ -37,6 +57,7 @@ Open <http://localhost:8080>. Or look around a fully populated demo first:
 
 | | |
 |---|---|
+| **Never stop** | Close your laptop mid-task and the work carries on: the agent snapshots your working tree as you go, and when your machine drops off, **your own AI developer picks the session up** — same repository, same uncommitted changes, same conversation. [→](docs/always-on.md) |
 | **See** | Every Claude Code session across the org, live and historical: who, which agent and model, repo, branch, ticket, duration, tokens, how it ended. Sessions by AI developers sit next to people's, attributed to the person who asked for them. |
 | **Delegate** | Turn any piece of work into a **task**. Give it to a teammate: it appears in their inbox, and when they accept, **Claude Code opens on their laptop** in a fresh git worktree, already working on it. Or give it to an **AI developer**, which runs Claude Code or Codex in a Docker sandbox on your runner, pushes a branch and opens a pull request. |
 | **Automate** | **Workflows** create tasks by hand, on a **schedule** (cron with time zones), or from a **webhook** any system can call: GitHub, Jira, Linear, Sentry, Zendesk, PagerDuty. |
@@ -194,6 +215,7 @@ AI developer is recorded as the actor, so accountability never disappears into a
 | ✅ **0.1** | The R&D view: every session, human and AI, in one place |
 | ✅ **0.2** | Tasks, workflows (manual, cron, webhook), laptop agent, AI developers and runners, full transcripts, org-wide search, hand-off, audit log |
 | ✅ **0.3** | Workbenches (a persistent database per AI developer), the archive in your editor over MCP, Slack commands, continue-a-session, a home page that is your work rather than a dashboard |
+| ✅ **0.4** | **Always-on sessions**: a closed laptop hands the work to your own AI developer, from your working tree as you left it |
 | **Next** | Benchmark harness: tokens and time with and without Flockit context, reproducible on your own repo |
 | | Verified memory: facts re-derived by the command that produced them, withheld when stale, served through the same MCP tools |
 | | Decision capture: a review rejection becomes a rule the next agent follows |

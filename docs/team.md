@@ -88,6 +88,18 @@ of a clean fixture that never fails. See [docs/workbenches.md](workbenches.md).
 
 ![Workflows: manual, scheduled and webhook triggers](images/workflows.png)
 
+## 5b. Always-on sessions
+
+The feature people notice first. Each person turns it on for themselves (**Connect →
+Always-on sessions**), which creates one AI developer that belongs to them. From then on,
+a closed laptop hands their in-flight session to that agent, which continues from their
+working tree — uncommitted changes and all — and leaves a branch with a note.
+
+For a lead this is worth understanding as a policy, not a toy: it is off per person until
+they turn it on, it only fires when *every* machine of theirs has gone quiet mid-session,
+it takes one handover at a time, and every run costs model time on your runner like any
+other task. [docs/always-on.md](always-on.md)
+
 ## 6. Workflows
 
 **Workflows** create tasks without anyone typing them:

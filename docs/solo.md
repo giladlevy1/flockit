@@ -71,7 +71,17 @@ it is the only part of Flockit that talks to the outside world.
 Then **Hire an AI developer**: give it a name, your repository, and a workbench (start with *Web service with
 Postgres*). Assign it a real ticket — something you have been putting off — and watch it work in the session view.
 
-## 5. Let it prove its own work
+## 5. Never lose a session
+
+**Connect → Always-on sessions → Turn it on.** From then on, closing your laptop mid-task
+is not a lost session: the agent snapshots your working tree as you go, and when your
+machine drops off, your own AI developer picks the work up from exactly there — uncommitted
+changes included. You come back to a branch and a note instead of a frozen terminal.
+
+It is off until you turn it on, it needs a runner to continue on, and it never fires while
+your machine is still reporting. [docs/always-on.md](always-on.md)
+
+## 6. Let it prove its own work
 
 The workbench is the part that matters, and the part most tools skip. Your AI developer gets a Postgres database that
 **survives between tasks**, exactly like the one on your laptop: it can run your migrations, seed it, query it, and run

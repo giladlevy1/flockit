@@ -140,6 +140,15 @@ export function GettingStarted({ me }: { me: Me }) {
             </li>
           ))}
         </ol>
+        {me.user.role === "admin" && (
+          <p className="border-t border-line px-4 py-2.5 text-xs text-muted">
+            Working with a team?{" "}
+            <Link to="/people" className="text-accent-ink hover:underline">
+              Invite them
+            </Link>{" "}
+            — everyone connects their own machine, and each person sees their own work. Leads see their teams.
+          </p>
+        )}
       </Card>
       <NewAiDeveloper open={hiring} onClose={() => setHiring(false)} />
     </>

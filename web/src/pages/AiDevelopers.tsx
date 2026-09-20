@@ -25,7 +25,7 @@ export function AiDevelopersPage({ me }: { me: Me }) {
     <div>
       <PageHeader
         title="AI developers"
-        sub="Members of your organisation who are agents. Assign them tasks like anyone else; they work in sandboxes on your runners and open pull requests."
+        sub="Engineers on your team that happen to be agents. They take tasks, work in sandboxes against a real database, run your tests, and open pull requests — and one of them continues your own sessions when your machine goes away."
         actions={
           isAdmin && (
             <Button variant="primary" onClick={() => setHiring(true)}>
