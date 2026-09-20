@@ -68,6 +68,8 @@ export SLACK_BOT_TOKEN=...     # optional: post results back to Slack
 ~/.flockit/venv/bin/flockit runner --server https://flockit.internal.example.com --token frn_... --capacity 2
 ```
 
+![AI developers, their runners and their workbenches](images/ai-developers.png)
+
 Then **hire AI developers**. Treat them like people: give each one a sponsor who answers for its work, put it on a
 team, point it at a repository, and give it a **workbench**. One per area beats one per organisation — an agent that
 always works in the payments repo, against payments-shaped data, gets better at payments.

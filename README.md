@@ -51,12 +51,12 @@ Open <http://localhost:8080>. Or look around a fully populated demo first:
 <td width="50%"><img src="docs/images/developer-home.png" alt="A developer's home: a task waiting, then their sessions"><br><sub><b>A developer's home</b>: what needs a decision, then their work</sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/session-timeline.png" alt="A session's full conversation"><br><sub><b>Every session as a timeline</b>: prompts, tool calls, files — and <b>Continue</b> to pick it up again</sub></td>
-<td><img src="docs/images/task-result.png" alt="A task finished by an AI developer, with its pull request"><br><sub><b>A webhook-triggered bug</b>, fixed by an AI developer, PR ready</sub></td>
+<td><img src="docs/images/session-timeline.png" alt="A session's full conversation"><br><sub><b>Every session as a timeline</b> — and <b>Continue</b> to pick it up again</sub></td>
+<td><img src="docs/images/session-terminal.png" alt="The same session as a terminal transcript"><br><sub><b>Or read it as a terminal</b>: what ran, and what came back</sub></td>
 </tr>
 <tr>
+<td><img src="docs/images/task-result.png" alt="A task finished by an AI developer, with its pull request"><br><sub><b>A webhook-triggered bug</b>, fixed by an AI developer, PR ready</sub></td>
 <td><img src="docs/images/insights.png" alt="Insights: live work, agent hours, model mix, overlapping tickets"><br><sub><b>Insights</b> for leads: people and AI in one record</sub></td>
-<td><img src="docs/images/ai-developers.png" alt="AI developers, runners and workbenches"><br><sub><b>AI developers</b>, their runners and their workbenches</sub></td>
 </tr>
 </table>
 

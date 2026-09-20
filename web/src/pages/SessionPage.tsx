@@ -8,7 +8,7 @@ import { Markdown } from "../components/Markdown";
 import { StatusBadge } from "../components/sessions/StatusBadge";
 import { NewTaskDialog } from "../components/tasks/NewTaskDialog";
 import { Avatar, Button, Card, Spinner } from "../components/ui";
-import { BotAvatar, TaskStatus, tokens } from "../components/work";
+import { BotAvatar, Segmented, TaskStatus, tokens } from "../components/work";
 import { api } from "../lib/api";
 import { dateTime, duration, prettyModel, shortRepo, taskHref, taskLabel, vendorLabel } from "../lib/format";
 import type { Me, Session, TranscriptMessage } from "../lib/types";
@@ -31,6 +31,7 @@ export function SessionPage({ me }: { me: Me }) {
     refetchInterval: session.data?.status === "live" ? 4000 : false,
   });
   const [showTools, setShowTools] = useState(true);
+  const [view, setView] = useState<"chat" | "terminal">("chat");
   const [handoff, setHandoff] = useState(false);
   const messages = useMemo(() => transcript.data?.pages.flatMap((p) => p.items) ?? [], [transcript.data]);
   const target = location.hash.startsWith("#m-") ? Number(location.hash.slice(3)) : null;
@@ -79,12 +80,21 @@ export function SessionPage({ me }: { me: Me }) {
           </div>
 
           <Card className="mt-5">
-            <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-              <span className="text-sm font-medium">Conversation</span>
-              <label className="flex items-center gap-2 text-[13px] text-muted">
-                <input type="checkbox" className="accent-[var(--accent)]" checked={showTools} onChange={(e) => setShowTools(e.target.checked)} />
-                Show tool calls
-              </label>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
+              <Segmented
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: "chat", label: "Conversation" },
+                  { value: "terminal", label: "Terminal" },
+                ]}
+              />
+              {view === "chat" && (
+                <label className="flex items-center gap-2 text-[13px] text-muted">
+                  <input type="checkbox" className="accent-[var(--accent)]" checked={showTools} onChange={(e) => setShowTools(e.target.checked)} />
+                  Show tool calls
+                </label>
+              )}
             </div>
             {transcript.isLoading ? (
               <div className="p-6">
@@ -94,6 +104,8 @@ export function SessionPage({ me }: { me: Me }) {
               <p className="px-4 py-10 text-center text-sm text-muted">
                 No conversation captured for this session. It may predate transcript capture, or the collector is older than 0.2.
               </p>
+            ) : view === "terminal" ? (
+              <TerminalView messages={messages} />
             ) : (
               <ol className="divide-y divide-line">
                 {visible.map((m) => (
@@ -304,5 +316,47 @@ function Continue({ id }: { id: string }) {
     <Button size="sm" variant="primary" loading={go.isPending} onClick={() => go.mutate()} title="Reopen this session on your machine">
       <Play className="size-3.5" /> Continue
     </Button>
+  );
+}
+
+/**
+ * The same session read as what it was on the machine: what the agent ran, and what came
+ * back. Commands first, prose reduced to comments — how you would read it if you had been
+ * looking over their shoulder.
+ */
+function TerminalView({ messages }: { messages: TranscriptMessage[] }) {
+  const lines = messages.filter((m) => m.kind !== "text" || m.role === "user");
+  if (lines.length === 0) {
+    return <p className="px-4 py-10 text-center text-sm text-muted">Nothing was run in this session.</p>;
+  }
+  return (
+    <div className="max-h-[70vh] overflow-auto bg-[#0d1729] px-4 py-3 font-mono text-[12.5px] leading-relaxed text-[#e8ecf1]">
+      {lines.map((m) => {
+        if (m.kind === "text") {
+          return (
+            <p key={m.seq} className="mt-3 whitespace-pre-wrap text-[#7d8aa0] first:mt-0">
+              {m.content
+                .split("\n")
+                .map((line) => `# ${line}`)
+                .join("\n")}
+            </p>
+          );
+        }
+        if (m.kind === "tool_use") {
+          const shell = m.tool_name === "Bash";
+          return (
+            <p key={`${m.seq}-u`} className="mt-2 whitespace-pre-wrap">
+              <span className="text-[#e8622c]">{shell ? "$ " : `${m.tool_name ?? "tool"} `}</span>
+              <span className="text-[#e8ecf1]">{m.content}</span>
+            </p>
+          );
+        }
+        return (
+          <p key={`${m.seq}-r`} className="whitespace-pre-wrap text-[#9fb3c8]">
+            {m.content}
+          </p>
+        );
+      })}
+    </div>
   );
 }
