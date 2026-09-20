@@ -84,6 +84,18 @@ class DispatchMode(str, enum.Enum):
     auto = "auto"  # workflows set to auto-start may start headless sessions without asking
 
 
+class Continuity(str, enum.Enum):
+    """What happens to a live session when the machine it runs on goes away.
+
+    A closed laptop does not end a Claude Code session: the agent simply stops reporting.
+    With ``auto``, Flockit hands that work to the person's own AI developer, which picks it
+    up in the cloud with the same conversation and the same working tree.
+    """
+
+    off = "off"  # the session just stops, as it always has
+    auto = "auto"  # hand it to my AI developer and keep going
+
+
 class RunMode(str, enum.Enum):
     ask = "ask"  # the assignee accepts before anything runs
     auto = "auto"  # starts headless if the assignee allows auto-start (always, for AI developers)
@@ -150,7 +162,11 @@ class Organization(Base):
 
 class User(Base):
     __tablename__ = "user"
-    __table_args__ = (UniqueConstraint("org_id", "email", name="uq_user_org_email"),)
+    __table_args__ = (
+        UniqueConstraint("org_id", "email", name="uq_user_org_email"),
+        # One personal AI developer per person, so a handoff never has to choose.
+        Index("uq_user_personal_for", "personal_for_id", unique=True, postgresql_where=text("personal_for_id IS NOT NULL")),
+    )
 
     id: Mapped[uuid.UUID] = _pk()
     org_id: Mapped[uuid.UUID] = _org()
@@ -189,6 +205,15 @@ class User(Base):
     slack_link_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     # Set the first time someone finishes (or skips) the getting-started steps.
     onboarded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # People: what happens to a live session when this person's machine goes away.
+    continuity: Mapped[Continuity] = mapped_column(
+        _enum(Continuity, "continuity_mode"), default=Continuity.off, server_default="off"
+    )
+    # AI developers: the one person this agent belongs to. A personal AI developer only ever
+    # continues its owner's work, so the handoff needs no decision about who it goes to.
+    personal_for_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), nullable=True
+    )
 
     teams: Mapped[List["Team"]] = relationship(secondary="team_member", back_populates="members", lazy="selectin")
 
@@ -333,6 +358,16 @@ class AgentSession(Base):
     message_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     files_touched: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     collector_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    # A snapshot of the working tree, taken on the developer's machine while they work, so a
+    # session can be continued elsewhere without them having to commit anything first.
+    wip_ref: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    wip_sha: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    wip_pushed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    wip_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set when this session was handed to an AI developer because the machine went away.
+    continued_by_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflow_run.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

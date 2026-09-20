@@ -1,13 +1,13 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowLeft, ChevronRight, FileCode2, Forward, GitBranch, ListTodo, Play, Terminal, Wrench } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronRight, FileCode2, Forward, GitBranch, ListTodo, MoonStar, Play, Terminal, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
 import { Markdown } from "../components/Markdown";
 import { StatusBadge } from "../components/sessions/StatusBadge";
 import { NewTaskDialog } from "../components/tasks/NewTaskDialog";
-import { Avatar, Button, Card, Spinner } from "../components/ui";
+import { Avatar, Badge, Button, Card, Spinner } from "../components/ui";
 import { BotAvatar, Segmented, TaskStatus, tokens } from "../components/work";
 import { api } from "../lib/api";
 import { dateTime, duration, prettyModel, shortRepo, taskHref, taskLabel, vendorLabel } from "../lib/format";
@@ -78,6 +78,8 @@ export function SessionPage({ me }: { me: Me }) {
               </Button>
             </div>
           </div>
+
+          <Handoff s={s} />
 
           <Card className="mt-5">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
@@ -359,4 +361,46 @@ function TerminalView({ messages }: { messages: TranscriptMessage[] }) {
       })}
     </div>
   );
+}
+
+/**
+ * A session that was interrupted, and the one that carried on from it. Shown on both
+ * ends so the work reads as one thread rather than two unrelated sessions.
+ */
+function Handoff({ s }: { s: Session }) {
+  if (s.continued_by) {
+    const live = s.continued_by.status === "running" || s.continued_by.status === "starting";
+    return (
+      <Card className="mt-4 flex flex-wrap items-center gap-3 border-accent/40 px-4 py-3">
+        <MoonStar className="size-4 shrink-0 text-accent" />
+        <span className="min-w-0 flex-1 text-sm">
+          Your machine went offline mid-session, so this work {live ? "is being continued" : "was continued"} by your AI
+          developer.
+        </span>
+        {s.continued_by.session_id ? (
+          <Link to={`/sessions/${s.continued_by.session_id}`}>
+            <Button size="sm" variant="secondary">
+              Watch it <ArrowRight className="size-3.5" />
+            </Button>
+          </Link>
+        ) : (
+          <Badge tone="accent">{s.continued_by.status}</Badge>
+        )}
+      </Card>
+    );
+  }
+  if (s.continues) {
+    return (
+      <Card className="mt-4 flex flex-wrap items-center gap-3 px-4 py-3">
+        <MoonStar className="size-4 shrink-0 text-muted" />
+        <span className="min-w-0 flex-1 text-sm text-ink-2">
+          Continuing a session that stopped when its machine went offline.
+        </span>
+        <Link to={`/sessions/${s.continues.session_id}`} className="text-[13px] text-accent-ink hover:underline">
+          See where it started
+        </Link>
+      </Card>
+    );
+  }
+  return null;
 }

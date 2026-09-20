@@ -18,7 +18,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from flockit import __version__, config, launch, log, transport, workspace
+from flockit import __version__, config, continuity, launch, log, transport, workspace
 from flockit.conversation import PathRewriter
 from flockit.redact import scrub
 
@@ -189,9 +189,57 @@ class Agent:
             thread.start()
         return body
 
+    # --- always-on sessions ------------------------------------------------
+
+    def live_sessions(self) -> List[Dict[str, str]]:
+        """Sessions that were active on this machine recently, from the hook's own state.
+
+        The hook writes one file per session as it goes; a file touched in the last few
+        minutes means someone is working in that repository right now.
+        """
+        fresh = time.time() - 5 * 60
+        found: List[Dict[str, str]] = []
+        try:
+            entries = sorted(config.state_dir().glob("*.json"))
+        except OSError:
+            return found
+        for path in entries[-20:]:
+            try:
+                if path.stat().st_mtime < fresh:
+                    continue
+                state = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            root = state.get("root")
+            if isinstance(root, str) and root and not state.get("task_id"):
+                # Task sessions already run on a branch Flockit made; only a developer's
+                # own working copy needs a snapshot.
+                found.append({"session_id": path.stem, "root": root, "repo": state.get("repo") or ""})
+        return found
+
+    def snapshot_live_work(self) -> None:
+        """Keep every live session continuable, so a closed laptop is not lost work."""
+        for entry in self.live_sessions():
+            taken = continuity.snapshot(entry["root"], entry["session_id"])
+            if not taken:
+                continue
+            transport.request(
+                self.cfg,
+                "POST",
+                "/api/agent/sessions/wip",
+                {
+                    "external_id": entry["session_id"],
+                    "ref": taken["ref"],
+                    "sha": taken["sha"],
+                    "pushed": taken["pushed"],
+                },
+                timeout=10,
+            )
+
     def run_forever(self) -> None:
         log.write(f"agent started on {machine_name()}")
         backoff = 2
+        last_snapshot = 0.0
         while True:
             with self.lock:
                 busy = len(self.running) >= MAX_PARALLEL
@@ -204,3 +252,10 @@ class Agent:
                 backoff = min(backoff * 2, 60)
             else:
                 backoff = 2
+                # The server decides whether this person wants their work continued elsewhere.
+                if body.get("continuity") == "auto" and time.monotonic() - last_snapshot > continuity.SNAPSHOT_EVERY_SECONDS:
+                    last_snapshot = time.monotonic()
+                    try:
+                        self.snapshot_live_work()
+                    except Exception as exc:  # noqa: BLE001 - a snapshot must never stop the agent
+                        log.write(f"snapshot failed: {type(exc).__name__}")

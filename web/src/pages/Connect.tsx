@@ -3,6 +3,7 @@ import { CheckCircle2, KeyRound, Laptop, MessageSquare, ShieldCheck, Sparkles, T
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { AlwaysOn } from "../components/work/AlwaysOn";
 import { Button, Card, CopyButton, ErrorNote, Input, PageHeader, Spinner } from "../components/ui";
 import { api, qs } from "../lib/api";
 import { prettyModel, relativeTime, shortRepo } from "../lib/format";
@@ -166,6 +167,8 @@ export function ConnectPage({ me }: { me: Me }) {
               stripped, and paths are made relative so your username never leaves. It goes only to this server.
             </p>
           </Card>
+
+          <AlwaysOn />
 
           <MyMachines />
 

@@ -85,6 +85,10 @@ exit $CODE
 # without credentials (public repositories still work) and never pushed.
 DEFAULT_TOKEN_HOSTS = "github.com"
 
+# What a continued session may start from: a Flockit snapshot ref and a commit id, nothing else.
+SNAPSHOT_REF = re.compile(r"^refs/flockit/wip/[A-Za-z0-9._\-]{1,64}$")
+SHA = re.compile(r"^[0-9a-f]{7,64}$")
+
 
 def token_hosts() -> set:
     raw = os.environ.get("FLOCKIT_RUNNER_GIT_HOSTS", DEFAULT_TOKEN_HOSTS)
@@ -313,6 +317,7 @@ class TaskRun:
         branch = self.task["branch"]
         if self._git(["checkout", "--quiet", "-b", branch], target, host).returncode != 0:
             raise TaskError(f"Could not create branch {branch}")
+        self._start_from_snapshot(target, host)
         self.control["start"] = self._git(["rev-parse", "HEAD"], target, host).stdout.strip()
         # The sandbox runs as an unprivileged user that must be able to write the checkout.
         for root, dirs, files in os.walk(workdir):
@@ -323,6 +328,26 @@ class TaskRun:
                     pass
         os.chmod(workdir, 0o777)
         return host
+
+    def _start_from_snapshot(self, target: str, host: str) -> None:
+        """Continue an interrupted session from the developer's own working tree.
+
+        The snapshot is a commit on a shadow ref, pushed from their machine while they
+        worked. Its *tree* is what matters: the files exactly as they left them, including
+        what they had not committed. It is applied on top of the task branch, so the
+        continuation reads as one change rather than as their half-finished commit.
+        """
+        ref, sha = self.task.get("start_ref"), self.task.get("start_sha")
+        if not ref or not sha or not SNAPSHOT_REF.match(str(ref)) or not SHA.match(str(sha)):
+            return
+        if self._git(["fetch", "--quiet", "origin", f"{ref}:refs/flockit/start"], target, host).returncode != 0:
+            raise TaskError("The snapshot of the interrupted session is no longer on the remote")
+        # read-tree, not checkout: the worktree becomes the snapshot's tree exactly, so a file
+        # the developer deleted is deleted here too. HEAD stays on the task branch, so the
+        # whole thing lands as one set of changes on top of it.
+        if self._git(["read-tree", "-u", "--reset", str(sha)], target, host).returncode != 0:
+            raise TaskError("Could not restore the interrupted session's files")
+        self.control["restored"] = str(sha)[:12]
 
     def _publish(self, workdir: str, host: str) -> None:
         """Count the agent's commits and push them, from the runner process, after the sandbox is gone."""

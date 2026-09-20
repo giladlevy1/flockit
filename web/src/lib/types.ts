@@ -41,6 +41,9 @@ export interface Session {
   actor: { id: string; name: string; kind: "human" | "ai" } | null;
   title: string | null;
   task: { id: string; title: string; status: RunStatus } | null;
+  // An interrupted session points at the task that continued it; that task's session points back.
+  continued_by: { id: string; title: string; status: RunStatus; session_id: string | null } | null;
+  continues: { session_id: string } | null;
   origin: Origin;
   agent_vendor: string;
   agent_version: string | null;
@@ -201,6 +204,13 @@ export interface Workflow {
   last_run_at: string | null;
   runs: Partial<Record<RunStatus, number>>;
   webhook_url: string | null;
+}
+
+export interface Continuity {
+  enabled: boolean;
+  agent: { id: string; name: string; environment: string | null } | null;
+  runners: number;
+  last_handover: { id: string; title: string; status: RunStatus; at: string } | null;
 }
 
 export interface Service {

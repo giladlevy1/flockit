@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import text
 
-from flockit_server import __version__, db
+from flockit_server import __version__, continuity, db
 from flockit_server.queries import sweep_abandoned
 from flockit_server.routers import (
     agents,
@@ -48,6 +48,24 @@ async def _sweeper() -> None:
         await asyncio.sleep(interval)
 
 
+async def _continuity_watch() -> None:
+    """Hand interrupted sessions to their owner's AI developer.
+
+    On its own short interval, not the maintenance sweep: the point of the feature is that
+    a closed laptop is picked up in about a minute, not whenever the next sweep happens.
+    """
+    interval = get_settings().continuity_interval_seconds
+    while True:
+        try:
+            async with db.sessionmaker()() as session:
+                n = await continuity.sweep(session)
+                if n:
+                    log.info("handed %d interrupted session(s) to an AI developer", n)
+        except Exception:  # noqa: BLE001 - never stop watching
+            log.exception("continuity watch failed")
+        await asyncio.sleep(interval)
+
+
 async def _scheduler() -> None:
     """Start scheduled workflows. Checks every 20 seconds; cron has minute resolution."""
     while True:
@@ -62,7 +80,11 @@ async def _scheduler() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    tasks = [asyncio.create_task(_sweeper()), asyncio.create_task(_scheduler())] if app.state.run_sweeper else []
+    tasks = (
+        [asyncio.create_task(_sweeper()), asyncio.create_task(_scheduler()), asyncio.create_task(_continuity_watch())]
+        if app.state.run_sweeper
+        else []
+    )
     try:
         yield
     finally:

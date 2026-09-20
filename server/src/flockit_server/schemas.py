@@ -245,6 +245,10 @@ class SessionOut(BaseModel):
     actor: Optional[ActorOut] = None
     title: Optional[str] = None
     task: Optional[dict] = None
+    # Set when this session was interrupted and handed to an AI developer to continue.
+    continued_by: Optional[dict] = None
+    # Set on the AI developer's session that continued someone else's.
+    continues: Optional[dict] = None
     origin: Origin
     agent_vendor: str
     agent_version: Optional[str]

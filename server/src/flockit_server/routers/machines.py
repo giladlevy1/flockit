@@ -22,6 +22,7 @@ from flockit_server import runs
 from flockit_server.db import get_db, sessionmaker
 from flockit_server.deps import CollectorIdentity, collector_identity
 from flockit_server.models import (
+    AgentSession,
     ApiToken,
     Environment,
     Machine,
@@ -94,6 +95,10 @@ def task_payload(run: WorkflowRun) -> dict:
         # Continuing an earlier session: the agent reopens it with `claude --resume` in the
         # same checkout instead of starting a fresh one in a worktree.
         "resume": (run.trigger_payload or {}).get("resume"),
+        # An interrupted session continued in the cloud starts from the snapshot of the
+        # developer's working tree, not from the branch tip.
+        "start_ref": (run.trigger_payload or {}).get("start_ref"),
+        "start_sha": (run.trigger_payload or {}).get("start_sha"),
     }
 
 
@@ -187,7 +192,48 @@ async def agent_poll(
             return result if (task or offers) else None
 
     found = await _wait_for(claim, wait)
-    return {"machine_id": str(machine_id), **(found or {"task": None, "offers": []})}
+    return {
+        "machine_id": str(machine_id),
+        # Whether to keep this person's live sessions continuable. Off unless they asked.
+        "continuity": who.user.continuity.value,
+        **(found or {"task": None, "offers": []}),
+    }
+
+
+class WipIn(BaseModel):
+    """A snapshot of a working tree, taken on the developer's machine while they work."""
+
+    external_id: str = Field(min_length=1, max_length=128)
+    ref: str = Field(min_length=1, max_length=200, pattern=r"^refs/flockit/wip/[A-Za-z0-9._\-]{1,64}$")
+    sha: str = Field(min_length=7, max_length=64, pattern=r"^[0-9a-f]{7,64}$")
+    pushed: bool = False
+
+
+@router.post("/api/agent/sessions/wip")
+async def report_wip(
+    body: WipIn, who: CollectorIdentity = Depends(collector_identity), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Record where a live session's uncommitted work can be picked up from.
+
+    Only for the person's own sessions: this is how an interrupted session becomes
+    continuable, so it must never be possible to point someone else's session elsewhere.
+    """
+    _person(who)
+    session = (
+        await db.execute(
+            select(AgentSession).where(
+                AgentSession.external_id == body.external_id,
+                AgentSession.org_id == who.user.org_id,
+                AgentSession.human_owner_id == who.user.id,
+            )
+        )
+    ).scalars().first()
+    if session is None:
+        raise HTTPException(404, "No session of yours with that id")
+    session.wip_ref, session.wip_sha, session.wip_pushed = body.ref, body.sha, body.pushed
+    session.wip_at = runs.now()
+    await db.commit()
+    return {"ok": True, "continuable": bool(body.pushed and session.repo)}
 
 
 async def _own_run(db: AsyncSession, run_id: uuid.UUID, *, user: Optional[User] = None, machine: Optional[Machine] = None):

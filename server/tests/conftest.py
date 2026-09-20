@@ -24,6 +24,7 @@ from flockit_server.settings import get_settings  # noqa: E402
 TABLES = [
     "audit_event", "session_message", "session_file", "ingest_event", "retrieval", "decision", "fact",
     "session", "workflow_run", "workflow", "machine", "api_token", "login_session", "team_member", "team",
+    "environment",
     '"user"', "organization",
 ]
 

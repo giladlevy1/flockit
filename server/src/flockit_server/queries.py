@@ -133,10 +133,34 @@ async def _team_names(db: AsyncSession, viewer: User, user_ids: set[uuid.UUID]) 
 
 async def _tasks(db: AsyncSession, rows) -> Dict[uuid.UUID, dict]:
     ids = {r.workflow_run_id for r in rows if r.workflow_run_id}
+    # Also the tasks that continued an interrupted session, so both ends of a handoff resolve.
+    ids |= {r.continued_by_run_id for r in rows if getattr(r, "continued_by_run_id", None)}
     if not ids:
         return {}
-    found = await db.execute(select(WorkflowRun.id, WorkflowRun.title, WorkflowRun.status).where(WorkflowRun.id.in_(ids)))
-    return {i: {"id": i, "title": t, "status": st.value} for i, t, st in found}
+    found = await db.execute(
+        select(
+            WorkflowRun.id, WorkflowRun.title, WorkflowRun.status, WorkflowRun.session_id,
+            WorkflowRun.trigger, WorkflowRun.trigger_payload,
+        ).where(WorkflowRun.id.in_(ids))
+    )
+    return {
+        i: {
+            "id": i,
+            "title": title,
+            "status": status.value,
+            "session_id": sid,
+            # For a task that continued an interrupted session: which session it came from.
+            "continues": (payload or {}).get("session_id") if trigger == "continuity" else None,
+        }
+        for i, title, status, sid, trigger, payload in found
+    }
+
+
+def _continues(row: AgentSession, tasks: Optional[Dict[uuid.UUID, dict]]) -> Optional[dict]:
+    """For an AI developer's session: the interrupted session it took over, if any."""
+    task = (tasks or {}).get(row.workflow_run_id) if row.workflow_run_id else None
+    came_from = (task or {}).get("continues")
+    return {"session_id": came_from} if came_from else None
 
 
 def to_out(
@@ -150,6 +174,8 @@ def to_out(
         actor=ActorOut(id=actor.id, name=actor.name, kind=actor.kind.value) if actor else None,
         title=row.title,
         task=(tasks or {}).get(row.workflow_run_id) if row.workflow_run_id else None,
+        continued_by=(tasks or {}).get(row.continued_by_run_id) if row.continued_by_run_id else None,
+        continues=_continues(row, tasks),
         tokens_input=row.tokens_input or 0,
         tokens_output=row.tokens_output or 0,
         tokens_cache_read=row.tokens_cache_read or 0,

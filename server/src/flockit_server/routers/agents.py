@@ -13,12 +13,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flockit_server import runs, scope
+from flockit_server import continuity, runs, scope
 from flockit_server.db import get_db
 from flockit_server.deps import current_user, require_admin
 from flockit_server.models import (
     AgentSession,
     AuditEvent,
+    Continuity,
     DispatchMode,
     Environment,
     Machine,
@@ -481,3 +482,82 @@ async def ai_developer_profile(
             for w in flows
         ],
     }
+
+
+# --- Always-on sessions ----------------------------------------------------------
+# Each person can have one AI developer of their own. It exists for a single purpose:
+# to pick up their work when their machine goes away. Creating it is one click, because
+# a feature that needs a setup meeting is a feature nobody turns on.
+
+
+class ContinuityIn(BaseModel):
+    enabled: bool
+    # Where their agent should work when a session has no repository of its own.
+    default_repo: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.get("/api/me/continuity")
+async def my_continuity(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> dict:
+    agent = await continuity.personal_agent(db, user)
+    last = (
+        await db.execute(
+            select(WorkflowRun)
+            .where(WorkflowRun.assignee_id == agent.id, WorkflowRun.trigger == "continuity")
+            .order_by(WorkflowRun.created_at.desc())
+            .limit(1)
+        )
+    ).scalars().unique().first() if agent else None
+    runners = (
+        await db.execute(
+            select(func.count())
+            .select_from(Machine)
+            .where(Machine.org_id == user.org_id, Machine.kind == "runner", Machine.revoked_at.is_(None))
+        )
+    ).scalar_one()
+    return {
+        "enabled": user.continuity == Continuity.auto,
+        "agent": {"id": agent.id, "name": agent.name, "environment": agent.environment_id} if agent else None,
+        "runners": runners,
+        "last_handover": {"id": last.id, "title": last.title, "status": last.status.value, "at": last.created_at}
+        if last
+        else None,
+    }
+
+
+@router.put("/api/me/continuity")
+async def set_my_continuity(
+    body: ContinuityIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Turn always-on sessions on or off, creating this person's own AI developer the first time."""
+    agent = await continuity.personal_agent(db, user)
+    if body.enabled and agent is None:
+        first = user.name.split()[0] if user.name.split() else user.name
+        agent = User(
+            org_id=user.org_id,
+            email=f"{re.sub(r'[^a-z0-9]+', '-', first.lower()).strip('-') or 'agent'}-{secrets.token_hex(3)}@agents.flockit.local",
+            name=f"{first}'s agent",
+            role=Role.developer,
+            kind=UserKind.ai,
+            dispatch_mode=DispatchMode.auto,
+            agent_vendor="claude-code",
+            sponsor_id=user.id,
+            personal_for_id=user.id,
+            password_hash=None,
+            instructions=(
+                f"You continue {user.name}'s coding sessions when their machine goes offline. "
+                "Their work, their conventions: pick up where they stopped rather than starting over, "
+                "and leave a note of what you did so they can take it back."
+            ),
+        )
+        agent.teams = list(user.teams)
+        db.add(agent)
+        await db.flush()
+        await runs.audit(db, user.org_id, user, "ai_developer.created", "user", agent.id, {"name": agent.name, "personal": True})
+    if agent is not None and body.default_repo is not None:
+        agent.default_repo = runs.validate_repo(body.default_repo, for_ai=True)
+    was = user.continuity
+    user.continuity = Continuity.auto if body.enabled else Continuity.off
+    if was != user.continuity:
+        await runs.audit(db, user.org_id, user, "user.continuity", "user", user.id, {"mode": user.continuity.value})
+    await db.commit()
+    return await my_continuity(user, db)
