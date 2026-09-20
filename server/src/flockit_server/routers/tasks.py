@@ -213,7 +213,11 @@ async def create_task(body: TaskIn, user: User = Depends(current_user), db: Asyn
         raise HTTPException(403, "You cannot assign work to that person")
     repo = runs.validate_repo(body.repo, for_ai=assignee.kind == UserKind.ai)
     if assignee.kind == UserKind.ai and not repo:
-        raise HTTPException(422, "AI developers need a repository to work in")
+        # An AI developer that has a usual repository does not need to be told it again on
+        # every task — the UI, the API and the editor all get the same default.
+        repo = runs.validate_repo(assignee.default_repo, for_ai=True)
+    if assignee.kind == UserKind.ai and not repo:
+        raise HTTPException(422, f"{assignee.name} has no repository set, so this task needs one")
     base_branch = runs.validate_branch(body.base_branch)
     run = await runs.create_run(
         db,

@@ -39,7 +39,7 @@ export function AiDeveloperPage({ me }: { me: Me }) {
       <Link to="/ai" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
         <ArrowLeft className="size-4" /> AI developers
       </Link>
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex items-start gap-3">
         <BotAvatar id={d.id} size={44} />
         <div className="min-w-0 flex-1">
           <PageHeader

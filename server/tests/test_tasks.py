@@ -263,6 +263,24 @@ async def test_workflows_are_scoped_to_what_a_lead_can_assign(team, make_user, a
     assert (await admin.delete(f"/api/workflows/{wf['id']}")).status_code == 204
 
 
+async def test_an_ai_developer_with_a_usual_repository_does_not_need_telling(team, admin):
+    """Where an AI developer works is a property of the developer, not of every task. The
+    UI, the API and the editor all go through here, so the default belongs here."""
+    ai = team["ai"]["id"]
+    await admin.put(f"/api/ai-developers/{ai}", json={"name": "Ada Bot", "default_repo": "github.com/acme/api"})
+    made = await team["lead"].post("/api/tasks", json={"title": "Fix it", "prompt": "Please", "assignee_id": ai})
+    assert made.status_code == 201 and made.json()["repo"] == "github.com/acme/api"
+    # An explicit repository still wins, and still has to be one we allow.
+    other = await team["lead"].post(
+        "/api/tasks", json={"title": "Fix it", "prompt": "Please", "assignee_id": ai, "repo": "gitlab.com/acme/web"}
+    )
+    assert other.json()["repo"] == "gitlab.com/acme/web"
+    # With no default and no repository, the message says whose default is missing.
+    await admin.put(f"/api/ai-developers/{ai}", json={"name": "Ada Bot", "default_repo": None})
+    nope = await team["lead"].post("/api/tasks", json={"title": "Fix it", "prompt": "Please", "assignee_id": ai})
+    assert nope.status_code == 422 and "Ada Bot" in nope.text
+
+
 async def test_an_ai_developers_numbers_only_count_work_the_viewer_can_see(team, admin):
     """The card says "3 tasks, $2.31" right above the list of those tasks. If the numbers
     counted work the viewer is not allowed to open, the page would contradict itself — and
