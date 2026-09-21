@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flockit-server"
-version = "0.3.0"
+version = "0.4.0"
 description = "Flockit control plane: every coding session, human and AI, in one self-hosted view."
 license = "Apache-2.0"
 requires-python = ">=3.11"

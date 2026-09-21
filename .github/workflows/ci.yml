@@ -71,5 +71,8 @@ jobs:
           for i in $(seq 1 60); do curl -fsS http://localhost:8080/api/health && break; sleep 2; done
           curl -fsS http://localhost:8080/api/setup | grep needs_setup
           curl -fsS http://localhost:8080/ | grep -q '<div id="root">'
-          curl -fsS -o /dev/null http://localhost:8080/downloads/flockit-0.2.0-py3-none-any.whl
+          # The collector wheel is served by the server itself; check the one this commit builds,
+          # rather than a version that goes stale on the next release.
+          VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' collector/src/flockit/__init__.py)
+          curl -fsS -o /dev/null "http://localhost:8080/downloads/flockit-${VERSION}-py3-none-any.whl"
           docker compose down -v
